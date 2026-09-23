@@ -1,0 +1,93 @@
+{% extends "tracker/base.html" %}
+{% block title %}Manage{% endblock %}
+{% block content %}
+<h1>Manage Fleet</h1>
+<p class="muted" style="margin-top:0;">Add and edit machines and job sites.</p>
+
+<div class="card">
+  <h2>Equipment</h2>
+  <table>
+    <tr><th>Label</th><th>Customer</th><th>Site</th><th>Make / Model</th><th>Serial</th><th></th></tr>
+    {% for eq in equipment_list %}
+    <tr>
+      <td>{{ eq.label }}</td>
+      <td>{{ eq.customer.name }}</td>
+      <td>{{ eq.site.name|default:"—" }}</td>
+      <td>{{ eq.make }} {{ eq.model }}</td>
+      <td class="muted">{{ eq.serial_number|default:"—" }}</td>
+      <td><a class="equip-link" href="{% url 'manage_equipment_edit' eq.pk %}">Edit</a></td>
+    </tr>
+    {% empty %}<tr><td colspan="6" class="muted">No equipment yet.</td></tr>{% endfor %}
+  </table>
+  <form method="post" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create_equipment">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+      <div style="min-width:180px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Label</label>
+        <input type="text" name="label" placeholder="e.g. Excavator 9" required style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:160px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Customer</label>
+        <select name="customer_id" required style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+          <option value="">Select...</option>
+          {% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="min-width:180px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Site (optional)</label>
+        <select name="site_id" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+          <option value="">Unassigned</option>
+          {% for s in sites %}<option value="{{ s.pk }}">{{ s.name }} ({{ s.customer.name }})</option>{% endfor %}
+        </select>
+      </div>
+      <div style="min-width:120px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Make</label>
+        <input type="text" name="make" placeholder="Caterpillar" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:100px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Model</label>
+        <input type="text" name="model" placeholder="336" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:160px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Serial number</label>
+        <input type="text" name="serial_number" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <button type="submit" style="padding:0.55rem 1.1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Add machine</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Sites</h2>
+  <table>
+    <tr><th>Site</th><th>Customer</th><th>Equipment</th><th></th></tr>
+    {% for site in sites %}
+    <tr>
+      <td>{{ site.name }}</td>
+      <td>{{ site.customer.name }}</td>
+      <td>{{ site.equipment_count }}</td>
+      <td><a class="equip-link" href="{% url 'manage_site_edit' site.pk %}">Edit</a></td>
+    </tr>
+    {% empty %}<tr><td colspan="4" class="muted">No sites yet.</td></tr>{% endfor %}
+  </table>
+  <form method="post" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create_site">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+      <div style="flex:1; min-width:220px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Site name</label>
+        <input type="text" name="name" placeholder='e.g. Site 14 &ndash; North Pit' required style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:160px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Customer</label>
+        <select name="customer_id" required style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+          <option value="">Select...</option>
+          {% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <button type="submit" style="padding:0.55rem 1.1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Add site</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

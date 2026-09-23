@@ -1,0 +1,314 @@
+{% extends "tracker/base.html" %}
+{% block title %}{{ equipment.label }}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+{% endblock %}
+{% block content %}
+<p><a class="back-link" href="{% url 'equipment_list' %}">&larr; All equipment</a></p>
+<h1 style="margin-bottom:0">{{ equipment.label }}</h1>
+<p class="muted" style="margin-top:0.25rem">{{ equipment.make }} {{ equipment.model }} &middot; {{ equipment.customer.name }}</p>
+
+<div class="card">
+  <h2>Issues</h2>
+  <table>
+    <tr><th>Reported</th><th>By</th><th>Severity</th><th>Description</th><th>Status</th></tr>
+    {% for issue in issues %}
+    <tr>
+      <td>{{ issue.reported_at|date:"Y-m-d" }}</td>
+      <td>{{ issue.reported_by }}</td>
+      <td>
+        {% if issue.severity == "high" %}<span class="badge badge-fault">High</span>
+        {% elif issue.severity == "medium" %}<span class="badge" style="background:#fef3c7;color:#b45309;">Medium</span>
+        {% else %}<span class="muted">Low</span>{% endif %}
+      </td>
+      <td>{{ issue.description }}</td>
+      <td>
+        {% if issue.resolved_at %}<span class="badge badge-clear">Resolved {{ issue.resolved_at|date:"Y-m-d" }}</span>
+        {% else %}<span class="muted">Open</span>{% endif %}
+      </td>
+    </tr>
+    {% empty %}<tr><td colspan="5" class="muted">No issues reported.</td></tr>{% endfor %}
+  </table>
+  <form method="post" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="report_issue">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+      <div style="flex:1; min-width:220px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Report a new issue</label>
+        <input type="text" name="description" placeholder="What did you see, hear, or notice?" required style="width:100%; padding:0.45rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Severity</label>
+        <select name="severity" style="padding:0.45rem; border:1px solid var(--border); border-radius:6px;">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <button type="submit" style="padding:0.5rem 1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Submit</button>
+    </div>
+    <p class="muted" style="margin-top:0.4rem; margin-bottom:0; font-size:0.75rem;">Reported as {{ user.username }}</p>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Work Orders</h2>
+  <table>
+    <tr><th>Title</th><th>Assigned</th><th>Status</th><th>Down?</th><th>Cost</th><th>Opened</th></tr>
+    {% for wo in work_orders %}
+    <tr>
+      <td><a class="equip-link" href="{% url 'work_order_detail' wo.pk %}">{{ wo.title }}</a></td>
+      <td>{{ wo.assigned_to|default:"—" }}</td>
+      <td>
+        {% if wo.status == "open" %}<span class="status-pill status-due_soon">Open</span>
+        {% elif wo.status == "in_progress" %}<span class="status-pill status-unknown">In Progress</span>
+        {% elif wo.status == "completed" %}<span class="status-pill status-ok">Completed</span>
+        {% else %}<span class="muted">Cancelled</span>{% endif %}
+      </td>
+      <td>{% if wo.equipment_down %}<span class="badge badge-fault">Down</span>{% else %}<span class="muted">No</span>{% endif %}</td>
+      <td>${{ wo.total_cost|floatformat:2 }}</td>
+      <td>{{ wo.created_at|date:"Y-m-d" }}</td>
+    </tr>
+    {% empty %}<tr><td colspan="6" class="muted">No work orders yet.</td></tr>{% endfor %}
+  </table>
+  <form method="post" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create_workorder">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+      <div style="flex:1; min-width:220px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">New work order</label>
+        <input type="text" name="title" placeholder="e.g. Replace hydraulic hose" required style="width:100%; padding:0.45rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Assigned to</label>
+        <input type="text" name="assigned_to" placeholder="Technician" style="padding:0.45rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div>
+        <label class="muted" style="display:flex; align-items:center; gap:0.35rem; font-size:0.85rem;">
+          <input type="checkbox" name="equipment_down" checked> Takes equipment out of service
+        </label>
+      </div>
+      <button type="submit" style="padding:0.5rem 1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Create</button>
+    </div>
+  </form>
+  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Completing a work order automatically logs it to Maintenance History with its cost, so the forecast above updates on its own.</p>
+</div>
+
+<div class="card">
+  <h2>Maintenance Forecast</h2>
+  {% if maintenance_forecast %}
+  <table>
+    <tr><th>Task</th><th>Interval</th><th>Last performed</th><th>Hours remaining</th><th>Forecast date</th><th>Status</th></tr>
+    {% for f in maintenance_forecast %}
+    <tr>
+      <td>{{ f.schedule.task_name }}</td>
+      <td>{{ f.schedule.interval_hours|default:"—" }}h</td>
+      <td>{% if f.last_record %}{{ f.last_record.performed_at|date:"Y-m-d" }} @ {{ f.last_record.hours_at_service|default:"—" }}h{% else %}<span class="muted">none on record</span>{% endif %}</td>
+      <td>{{ f.hours_remaining|default:"—" }}</td>
+      <td>{{ f.forecast_date|date:"Y-m-d"|default:"—" }}</td>
+      <td>
+        {% if f.status == "overdue" %}<span class="status-pill status-overdue">Overdue</span>
+        {% elif f.status == "due_soon" %}<span class="status-pill status-due_soon">Due soon</span>
+        {% elif f.status == "ok" %}<span class="status-pill status-ok">OK</span>
+        {% else %}<span class="status-pill status-unknown">Unknown</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Forecast dates use this machine's own average hours/day from its logged history, not a generic calendar estimate.</p>
+  {% else %}
+  <p class="muted">No hour history yet, so nothing to forecast from.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Hours</h2>
+  {% if hours_chart.labels %}
+  <canvas id="hoursChart" height="90"></canvas>
+  {% else %}
+  <p class="muted">No hour readings recorded yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Location &amp; Conditions</h2>
+  {% if has_telemetry %}
+  <div style="margin-bottom:0.75rem">
+    <button type="button" class="map-filter-btn active" data-mode="none">Path</button>
+    <button type="button" class="map-filter-btn" data-mode="pm25">PM2.5</button>
+    <button type="button" class="map-filter-btn" data-mode="vibration">Vibration/impact</button>
+    <button type="button" class="map-filter-btn" data-mode="speed">Speed</button>
+  </div>
+  <div id="mapLegend" class="map-legend" style="display:none">
+    <span>Low</span>
+    <div class="legend-gradient"></div>
+    <span id="legendMaxLabel">High</span>
+  </div>
+  <div id="trackMap" style="height:420px; border-radius:6px;"></div>
+  {% else %}
+  <p class="muted">No location telemetry recorded yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Oil Analysis Trend</h2>
+  {% if oil_chart.labels %}
+  <canvas id="oilChart" height="90"></canvas>
+  {% else %}
+  <p class="muted">No oil samples recorded yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Fault Events</h2>
+  <table>
+    <tr><th>Code</th><th>Description</th><th>First seen</th><th>Status</th></tr>
+    {% for f in fault_events %}
+    <tr>
+      <td class="muted">SPN {{ f.spn }} / FMI {{ f.fmi }}</td><td>{{ f.description }}</td><td>{{ f.first_seen_at|date:"Y-m-d" }}</td>
+      <td>
+        {% if f.cleared_at %}<span class="badge badge-clear">Cleared {{ f.cleared_at|date:"Y-m-d" }}</span>
+        {% else %}<span class="badge badge-fault">Active</span>{% endif %}
+      </td>
+    </tr>
+    {% empty %}<tr><td colspan="4" class="muted">None recorded.</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h2>Maintenance History</h2>
+  <table>
+    <tr><th>Date</th><th>Description</th><th>Hours</th><th>Cost</th></tr>
+    {% for m in maintenance_records %}
+    <tr>
+      <td>{{ m.performed_at|date:"Y-m-d" }}</td><td>{{ m.description }}</td>
+      <td>{{ m.hours_at_service|default:"—" }}</td><td>{{ m.cost|default:"—" }}</td>
+    </tr>
+    {% empty %}<tr><td colspan="4" class="muted">None recorded.</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h2>Oil Sample Detail</h2>
+  <table>
+    <tr><th>Date</th><th>Hours</th><th>Iron (ppm)</th><th>Copper (ppm)</th><th>Silicon (ppm)</th><th>Lab note</th></tr>
+    {% for s in oil_samples %}
+    <tr>
+      <td>{{ s.sampled_at|date:"Y-m-d" }}</td><td>{{ s.hours_at_sample|default:"—" }}</td>
+      <td>{{ s.wear_metals.iron|default:"—" }}</td><td>{{ s.wear_metals.copper|default:"—" }}</td>
+      <td>{{ s.wear_metals.silicon|default:"—" }}</td><td class="muted">{{ s.lab_recommendation }}</td>
+    </tr>
+    {% empty %}<tr><td colspan="6" class="muted">None recorded.</td></tr>{% endfor %}
+  </table>
+</div>
+
+{{ hours_chart|json_script:"hours-chart-data" }}
+{{ oil_chart|json_script:"oil-chart-data" }}
+{{ map_data|json_script:"map-data" }}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const hoursData = JSON.parse(document.getElementById('hours-chart-data').textContent);
+const oilData = JSON.parse(document.getElementById('oil-chart-data').textContent);
+
+if (hoursData.labels.length) {
+  new Chart(document.getElementById('hoursChart'), {
+    type: 'line',
+    data: {
+      labels: hoursData.labels,
+      datasets: [{
+        label: 'Engine hours',
+        data: hoursData.hours,
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37,99,235,0.1)',
+        tension: 0.2,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { title: { display: true, text: 'Hours' } } }
+    }
+  });
+}
+
+if (oilData.labels.length) {
+  new Chart(document.getElementById('oilChart'), {
+    type: 'line',
+    data: {
+      labels: oilData.labels,
+      datasets: [
+        { label: 'Iron (ppm)', data: oilData.iron, borderColor: '#dc2626', tension: 0.2 },
+        { label: 'Copper (ppm)', data: oilData.copper, borderColor: '#d97706', tension: 0.2 },
+        { label: 'Silicon (ppm)', data: oilData.silicon, borderColor: '#16a34a', tension: 0.2 },
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: { y: { title: { display: true, text: 'ppm' } } }
+    }
+  });
+}
+
+const mapData = JSON.parse(document.getElementById('map-data').textContent);
+if (mapData.path.length) {
+  const map = L.map('trackMap');
+  map.fitBounds(L.latLngBounds(mapData.path), { padding: [20, 20] });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  const basePath = L.polyline(mapData.path, { color: '#2563eb', weight: 3, opacity: 0.6 }).addTo(map);
+
+  if (mapData.current) {
+    L.circleMarker(mapData.current, {
+      radius: 8, color: '#111827', fillColor: '#2563eb', fillOpacity: 1, weight: 2,
+    }).addTo(map).bindPopup('Current position').openPopup();
+  }
+
+  function colorForValue(value, max) {
+    const t = Math.max(0, Math.min(1, value / max));
+    return `hsl(${120 * (1 - t)}, 85%, 45%)`;
+  }
+
+  const overlay = L.layerGroup().addTo(map);
+  const legend = document.getElementById('mapLegend');
+  const legendMax = document.getElementById('legendMaxLabel');
+
+  function showColoredPath(points, max, unit) {
+    overlay.clearLayers();
+    if (!points || !points.length) {
+      legend.style.display = 'none';
+      basePath.setStyle({ opacity: 0.6 });
+      return;
+    }
+    basePath.setStyle({ opacity: 0 });
+    for (let i = 0; i < points.length - 1; i++) {
+      const [lat1, lon1, val] = points[i];
+      const [lat2, lon2] = points[i + 1];
+      L.polyline([[lat1, lon1], [lat2, lon2]], {
+        color: colorForValue(val, max), weight: 5, opacity: 0.9,
+      }).addTo(overlay);
+    }
+    legend.style.display = 'flex';
+    legendMax.textContent = `High (${max} ${unit})`;
+  }
+
+  document.querySelectorAll('.map-filter-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.map-filter-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      const mode = btn.dataset.mode;
+      if (mode === 'pm25') showColoredPath(mapData.pm25, 150, 'µg/m³');
+      else if (mode === 'vibration') showColoredPath(mapData.vibration, 8, 'intensity');
+      else if (mode === 'speed') showColoredPath(mapData.speed, 8, 'km/h');
+      else showColoredPath(null);
+    });
+  });
+}
+</script>
+{% endblock %}

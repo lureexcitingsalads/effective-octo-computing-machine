@@ -1,0 +1,82 @@
+{% extends "tracker/base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block extra_head %}
+<style>
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .stat-tile { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.4rem; box-shadow: var(--shadow-sm); display: block; text-decoration: none; color: inherit; transition: border-color 0.15s; }
+  a.stat-tile:hover { border-color: var(--accent); }
+  .stat-tile .stat-value { font-size: 2.1rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: var(--text); }
+  .stat-tile .stat-label { color: var(--muted); font-size: 0.8rem; margin-top: 0.45rem; font-weight: 500; }
+  .stat-tile.stat-danger .stat-value { color: var(--danger); }
+  .stat-tile.stat-warn .stat-value { color: var(--warn); }
+  .stat-tile.stat-ok .stat-value { color: var(--success); }
+
+  .attention-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+  .attention-row:last-child { border-bottom: none; }
+  .attention-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; flex-shrink: 0; }
+  .attention-text { color: var(--muted); font-size: 0.88rem; }
+
+  .dash-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dash-header">
+  <div>
+    <h1 style="margin-bottom:0.2rem;">Dashboard</h1>
+    <p class="muted" style="margin:0;">Fleet-wide status at a glance.</p>
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat-tile{% if overdue_count %} stat-danger{% endif %}">
+    <div class="stat-value">{{ overdue_count }}</div>
+    <div class="stat-label">Overdue maintenance</div>
+  </div>
+  <div class="stat-tile{% if due_soon_count %} stat-warn{% endif %}">
+    <div class="stat-value">{{ due_soon_count }}</div>
+    <div class="stat-label">Due soon</div>
+  </div>
+  <div class="stat-tile{% if active_fault_count %} stat-danger{% endif %}">
+    <div class="stat-value">{{ active_fault_count }}</div>
+    <div class="stat-label">Active faults</div>
+  </div>
+  <div class="stat-tile{% if open_issue_count %} stat-warn{% endif %}">
+    <div class="stat-value">{{ open_issue_count }}</div>
+    <div class="stat-label">Open issues</div>
+  </div>
+  <div class="stat-tile{% if equipment_down_count %} stat-danger{% endif %}">
+    <div class="stat-value">{{ equipment_down_count }}</div>
+    <div class="stat-label">Equipment down</div>
+  </div>
+  <div class="stat-tile stat-ok">
+    <div class="stat-value">{% if fleet_uptime_pct != None %}{{ fleet_uptime_pct }}%{% else %}&mdash;{% endif %}</div>
+    <div class="stat-label">Fleet uptime</div>
+  </div>
+  <a class="stat-tile" href="{% url 'work_orders_view' %}">
+    <div class="stat-value">{{ open_work_order_count }}</div>
+    <div class="stat-label">Open work orders</div>
+  </a>
+  <div class="stat-tile">
+    <div class="stat-value">{{ total_equipment }}</div>
+    <div class="stat-label">Total equipment</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Needs Attention</h2>
+  {% if attention_items %}
+    {% for item in attention_items %}
+    <div class="attention-row">
+      <span class="attention-dot" style="background: {% if item.severity == 3 %}var(--danger){% else %}var(--warn){% endif %};"></span>
+      <div>
+        <a class="equip-link" href="{% url 'equipment_detail' item.equipment.pk %}">{{ item.equipment.label }}</a>
+        <span class="attention-text"> &mdash; {{ item.text }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="muted" style="margin:0;">Nothing needs attention right now &mdash; fleet is in good shape.</p>
+  {% endif %}
+</div>
+{% endblock %}

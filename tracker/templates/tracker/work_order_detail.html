@@ -1,0 +1,173 @@
+{% extends "tracker/base.html" %}
+{% block title %}{{ wo.title }}{% endblock %}
+{% block extra_head %}
+<style>
+  .wo-quickform { display:flex; gap:0.6rem; flex-wrap:wrap; align-items:flex-end; margin-top:0.9rem; padding-top:0.9rem; border-top:1px solid var(--border); }
+  .wo-quickform label { display:block; color:var(--muted); font-size:0.78rem; margin-bottom:0.25rem; }
+  .wo-quickform input { padding:0.5rem; border:1px solid var(--border); border-radius:6px; font-family:inherit; }
+  .wo-remove { color:var(--danger); background:none; border:none; cursor:pointer; font-size:0.8rem; padding:0; }
+  .wo-cost-summary { display:flex; gap:2rem; flex-wrap:wrap; }
+  .wo-cost-summary .amount { font-size:1.4rem; font-weight:800; letter-spacing:-0.02em; }
+  .wo-status-actions { display:flex; gap:0.5rem; flex-wrap:wrap; margin:1rem 0; }
+  .wo-status-actions button { padding:0.6rem 1.1rem; border-radius:8px; font-size:0.9rem; font-weight:600; cursor:pointer; border:1px solid var(--border); background:var(--card-bg); }
+  .wo-status-actions button.primary { background:var(--accent); color:white; border-color:var(--accent); }
+  .wo-status-actions button.danger { color:var(--danger); border-color:var(--danger); }
+</style>
+{% endblock %}
+{% block content %}
+<p><a class="back-link" href="{% url 'equipment_detail' wo.equipment.pk %}">&larr; {{ wo.equipment.label }}</a></p>
+<div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+  <h1 style="margin-bottom:0;">{{ wo.title }}</h1>
+  {% if wo.status == "open" %}<span class="status-pill status-due_soon">Open</span>
+  {% elif wo.status == "in_progress" %}<span class="status-pill status-unknown">In Progress</span>
+  {% elif wo.status == "completed" %}<span class="status-pill status-ok">Completed</span>
+  {% else %}<span class="status-pill status-unknown">Cancelled</span>{% endif %}
+  {% if wo.equipment_down %}<span class="badge badge-fault">Equipment down</span>{% endif %}
+</div>
+<p class="muted" style="margin-top:0.25rem;">{{ wo.equipment.label }} &middot; {{ wo.equipment.customer.name }} &middot; opened {{ wo.created_at|date:"Y-m-d" }}</p>
+
+{% if wo.status == "open" or wo.status == "in_progress" %}
+<div class="wo-status-actions">
+  {% if wo.status == "open" %}
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="advance_status">
+    <input type="hidden" name="status" value="in_progress">
+    <button type="submit" class="primary">Start job</button>
+  </form>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="advance_status">
+    <input type="hidden" name="status" value="completed">
+    <button type="submit" class="primary">Mark complete</button>
+  </form>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="advance_status">
+    <input type="hidden" name="status" value="cancelled">
+    <button type="submit" class="danger">Cancel</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Notes</h2>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="update_notes">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.6rem;">
+      <div style="flex:1; min-width:200px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Assigned to</label>
+        <input type="text" name="assigned_to" value="{{ wo.assigned_to }}" placeholder="Technician" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+    </div>
+    <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Description / what's being done</label>
+    <textarea name="description" rows="3" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px; font-family:inherit;">{{ wo.description }}</textarea>
+    <button type="submit" style="margin-top:0.6rem; padding:0.5rem 1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Save notes</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Labor</h2>
+  <table>
+    <tr><th>Technician</th><th>Hours</th><th>Rate</th><th>Note</th><th>Cost</th><th></th></tr>
+    {% for line in wo.labor_lines.all %}
+    <tr>
+      <td>{{ line.technician }}</td>
+      <td>{{ line.hours }}</td>
+      <td>${{ line.rate|floatformat:2 }}/hr</td>
+      <td class="muted">{{ line.note|default:"—" }}</td>
+      <td>${{ line.line_total|floatformat:2 }}</td>
+      <td>
+        <form method="post" style="display:inline;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="remove_labor_line">
+          <input type="hidden" name="line_id" value="{{ line.pk }}">
+          <button type="submit" class="wo-remove">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% empty %}<tr><td colspan="6" class="muted">No labor logged yet.</td></tr>{% endfor %}
+  </table>
+  <form method="post" class="wo-quickform">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="add_labor_line">
+    <div>
+      <label>Technician</label>
+      <input type="text" name="technician" value="{{ wo.assigned_to }}" placeholder="Name" required style="width:140px;">
+    </div>
+    <div>
+      <label>Hours</label>
+      <input type="number" name="hours" step="0.25" min="0" placeholder="2.5" required style="width:90px;">
+    </div>
+    <div>
+      <label>Rate ($/hr)</label>
+      <input type="number" name="rate" step="0.01" min="0" value="120" style="width:100px;">
+    </div>
+    <div style="flex:1; min-width:160px;">
+      <label>Note (optional)</label>
+      <input type="text" name="note" placeholder="e.g. diagnosis + repair" style="width:100%;">
+    </div>
+    <button type="submit" style="padding:0.55rem 1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Add</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Parts</h2>
+  <table>
+    <tr><th>Part</th><th>Qty</th><th>Unit cost</th><th>Cost</th><th></th></tr>
+    {% for line in wo.part_lines.all %}
+    <tr>
+      <td>{{ line.part_name }}</td>
+      <td>{{ line.quantity }}</td>
+      <td>${{ line.unit_cost|floatformat:2 }}</td>
+      <td>${{ line.line_total|floatformat:2 }}</td>
+      <td>
+        <form method="post" style="display:inline;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="remove_part_line">
+          <input type="hidden" name="line_id" value="{{ line.pk }}">
+          <button type="submit" class="wo-remove">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% empty %}<tr><td colspan="5" class="muted">No parts logged yet.</td></tr>{% endfor %}
+  </table>
+  <form method="post" class="wo-quickform">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="add_part_line">
+    <div style="flex:1; min-width:180px;">
+      <label>Part</label>
+      <input type="text" name="part_name" placeholder="e.g. Hydraulic hose" required style="width:100%;">
+    </div>
+    <div>
+      <label>Qty</label>
+      <input type="number" name="quantity" step="1" min="1" value="1" style="width:80px;">
+    </div>
+    <div>
+      <label>Unit cost ($)</label>
+      <input type="number" name="unit_cost" step="0.01" min="0" placeholder="0.00" required style="width:100px;">
+    </div>
+    <button type="submit" style="padding:0.55rem 1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Add</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Cost breakdown</h2>
+  <div class="wo-cost-summary">
+    <div>
+      <div class="amount">${{ wo.labor_total|floatformat:2 }}</div>
+      <div class="muted">Labor</div>
+    </div>
+    <div>
+      <div class="amount">${{ wo.parts_total|floatformat:2 }}</div>
+      <div class="muted">Parts</div>
+    </div>
+    <div>
+      <div class="amount" style="color:var(--accent);">${{ wo.total_cost|floatformat:2 }}</div>
+      <div class="muted">Total</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

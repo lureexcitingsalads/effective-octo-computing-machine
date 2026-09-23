@@ -1,0 +1,22 @@
+databases:
+  - name: equipment-tracker-db
+    plan: free
+
+services:
+  - type: web
+    name: equipment-tracker
+    runtime: python
+    plan: free
+    buildCommand: "bash build.sh"
+    startCommand: "gunicorn config.wsgi:application"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: equipment-tracker-db
+          property: connectionString

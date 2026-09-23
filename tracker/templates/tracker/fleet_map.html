@@ -1,0 +1,191 @@
+{% extends "tracker/base.html" %}
+{% block title %}Fleet Map{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .distance-stat { display: flex; align-items: baseline; gap: 0.4rem; margin-bottom: 0.75rem; }
+  .distance-stat .distance-value { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; }
+  .hotspot-toggle { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); margin-left: 0.6rem; cursor: pointer; user-select: none; }
+  .hotspot-toggle input { cursor: pointer; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Fleet Map</h1>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; margin-bottom:0.75rem;">
+    <div style="display:flex; align-items:center; flex-wrap:wrap;">
+      <button type="button" class="map-filter-btn active" data-mode="none">Path</button>
+      <button type="button" class="map-filter-btn" data-mode="pm25">PM2.5</button>
+      <button type="button" class="map-filter-btn" data-mode="vibration">Impacts</button>
+      <button type="button" class="map-filter-btn" data-mode="speed">Speed</button>
+      <label class="hotspot-toggle" id="hotspotLabel" style="display:none;">
+        <input type="checkbox" id="hotspotToggle"> Hot spots (cumulative, all units)
+      </label>
+    </div>
+    <div>
+      <a class="map-filter-btn{% if range_key == '24h' %} active{% endif %}" href="?range=24h">24 Hours</a>
+      <a class="map-filter-btn{% if range_key == '1w' %} active{% endif %}" href="?range=1w">1 Week</a>
+      <a class="map-filter-btn{% if range_key == '1m' %} active{% endif %}" href="?range=1m">1 Month</a>
+      <a class="map-filter-btn{% if range_key == 'all' %} active{% endif %}" href="?range=all">All Time</a>
+    </div>
+  </div>
+
+  <div class="distance-stat">
+    <span class="distance-value" id="distanceValue">&mdash;</span>
+    <span class="muted">traveled across the fleet, this range</span>
+  </div>
+
+  <div id="mapLegend" class="map-legend" style="display:none">
+    <span>Low</span>
+    <div class="legend-gradient"></div>
+    <span id="legendMaxLabel">High</span>
+  </div>
+  <div id="machineLegend" class="map-legend" style="display:none; flex-wrap:wrap;"></div>
+
+  {% if has_any_telemetry %}
+  <div id="overviewMap" style="height:480px; border-radius:6px;"></div>
+  {% else %}
+  <p class="muted">No location telemetry in this time range.</p>
+  {% endif %}
+</div>
+
+{{ machines_data|json_script:"machines-data" }}
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const machines = JSON.parse(document.getElementById('machines-data').textContent);
+const palette = ['#4f46e5', '#7c3aed', '#ea580c', '#0d9488', '#db2777', '#65a30d'];
+const allPoints = machines.flatMap(m => m.path);
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+let totalKm = 0;
+machines.forEach((m) => {
+  const pts = m.path;
+  for (let i = 0; i < pts.length - 1; i++) {
+    totalKm += haversineKm(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+  }
+});
+document.getElementById('distanceValue').textContent = `${totalKm.toFixed(1)} km`;
+
+if (allPoints.length) {
+  const map = L.map('overviewMap');
+  map.fitBounds(L.latLngBounds(allPoints), { padding: [30, 30] });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  function colorForValue(value, max) {
+    const t = Math.max(0, Math.min(1, value / max));
+    return `hsl(${120 * (1 - t)}, 85%, 45%)`;
+  }
+
+  const pathLines = [];
+  const legendContainer = document.getElementById('machineLegend');
+  machines.forEach((m, i) => {
+    if (!m.path.length) return;
+    const color = palette[i % palette.length];
+    pathLines.push(L.polyline(m.path, { color, weight: 3, opacity: 0.7 }).addTo(map));
+    if (m.current) {
+      L.circleMarker(m.current, {
+        radius: 7, color: '#111827', fillColor: color, fillOpacity: 1, weight: 2,
+      }).addTo(map).bindTooltip(m.label, { direction: 'top' });
+    }
+    const item = document.createElement('span');
+    item.style.cssText = 'display:inline-flex; align-items:center; gap:0.35rem;';
+    item.innerHTML = `<span style="width:10px;height:10px;border-radius:50%;background:${color};display:inline-block;"></span>${m.label}`;
+    legendContainer.appendChild(item);
+  });
+  legendContainer.style.display = 'flex';
+
+  const overlay = L.layerGroup().addTo(map);
+  const legend = document.getElementById('mapLegend');
+  const legendMax = document.getElementById('legendMaxLabel');
+  const hotspotLabel = document.getElementById('hotspotLabel');
+  const hotspotToggle = document.getElementById('hotspotToggle');
+  let activeKey = null, activeMax = null, activeUnit = null;
+
+  function gridSnap(v, step) { return Math.round(v / step) * step; }
+
+  function computeHotspots(key, step = 0.0009) {
+    const cells = new Map();
+    machines.forEach((m) => {
+      (m[key] || []).forEach(([lat, lon, val]) => {
+        const k = `${gridSnap(lat, step)},${gridSnap(lon, step)}`;
+        if (!cells.has(k)) cells.set(k, { latSum: 0, lonSum: 0, valSum: 0, n: 0 });
+        const c = cells.get(k);
+        c.latSum += lat; c.lonSum += lon; c.valSum += val; c.n += 1;
+      });
+    });
+    return Array.from(cells.values()).map((c) => ({
+      lat: c.latSum / c.n, lon: c.lonSum / c.n, value: c.valSum / c.n, count: c.n,
+    }));
+  }
+
+  function renderHazard() {
+    overlay.clearLayers();
+    if (!activeKey) {
+      legend.style.display = 'none';
+      legendContainer.style.display = 'flex';
+      pathLines.forEach((l) => l.setStyle({ opacity: 0.7 }));
+      return;
+    }
+    legendContainer.style.display = 'none';
+    pathLines.forEach((l) => l.setStyle({ opacity: 0 }));
+
+    if (hotspotToggle.checked) {
+      const cells = computeHotspots(activeKey);
+      const maxCount = Math.max(1, ...cells.map((c) => c.count));
+      cells.forEach((c) => {
+        L.circleMarker([c.lat, c.lon], {
+          radius: 9 + 10 * (c.count / maxCount),
+          color: colorForValue(c.value, activeMax),
+          fillColor: colorForValue(c.value, activeMax),
+          fillOpacity: 0.55,
+          weight: 1,
+        }).addTo(overlay).bindTooltip(
+          `${c.value.toFixed(1)} ${activeUnit} avg (${c.count} reading${c.count === 1 ? '' : 's'})`
+        );
+      });
+    } else {
+      machines.forEach((m) => {
+        const points = m[activeKey];
+        for (let i = 0; i < points.length - 1; i++) {
+          const [lat1, lon1, val] = points[i];
+          const [lat2, lon2] = points[i + 1];
+          L.polyline([[lat1, lon1], [lat2, lon2]], {
+            color: colorForValue(val, activeMax), weight: 5, opacity: 0.9,
+          }).addTo(overlay);
+        }
+      });
+    }
+    legend.style.display = 'flex';
+    legendMax.textContent = `High (${activeMax} ${activeUnit})`;
+  }
+
+  document.querySelectorAll('.map-filter-btn[data-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.map-filter-btn[data-mode]').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      const mode = btn.dataset.mode;
+      if (mode === 'pm25') { activeKey = 'pm25'; activeMax = 150; activeUnit = 'µg/m³'; }
+      else if (mode === 'vibration') { activeKey = 'vibration'; activeMax = 8; activeUnit = 'intensity'; }
+      else if (mode === 'speed') { activeKey = 'speed'; activeMax = 8; activeUnit = 'km/h'; }
+      else { activeKey = null; activeMax = null; activeUnit = null; }
+      hotspotLabel.style.display = activeKey ? 'inline-flex' : 'none';
+      renderHazard();
+    });
+  });
+
+  hotspotToggle.addEventListener('change', renderHazard);
+}
+</script>
+{% endblock %}

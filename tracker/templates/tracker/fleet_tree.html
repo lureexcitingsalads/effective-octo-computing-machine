@@ -1,0 +1,401 @@
+{% extends "tracker/base.html" %}
+{% block title %}Fleet Tree{% endblock %}
+{% block extra_head %}
+<style>
+  .tree-dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; }
+  .tree-dot-overdue { background: var(--danger); }
+  .tree-dot-due_soon { background: #d97706; }
+  .tree-dot-ok { background: var(--success); }
+  .tree-dot-unknown { background: #6b7280; }
+
+  .fm-controls { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+  #fleet-map-wrap { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  #fleet-svg { width: 100%; height: 720px; display: block; cursor: grab; }
+  #fleet-svg:active { cursor: grabbing; }
+
+  .fm-ring { fill: none; stroke: var(--border); stroke-dasharray: 2 4; }
+  .fm-link { fill: none; stroke: var(--border); stroke-width: 1.5px; }
+  .fm-node rect { stroke: var(--card-bg); stroke-width: 2px; cursor: pointer; }
+  .fm-node.root rect { stroke: white; stroke-width: 3px; }
+  .fm-node.fm-drop-target rect { stroke: var(--accent); stroke-width: 4px; }
+  .fm-node text { font-family: inherit; pointer-events: none; }
+
+  @media (max-width: 640px) {
+    #fleet-svg { height: 520px; }
+  }
+
+  .fm-modal-backdrop {
+    display: none; position: fixed; inset: 0; background: rgba(17,24,39,0.5);
+    align-items: center; justify-content: center; z-index: 1000;
+  }
+  .fm-modal-backdrop.open { display: flex; }
+  .fm-modal { background: var(--card-bg); border-radius: 10px; padding: 1.5rem; max-width: 380px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+  .fm-modal p { margin: 0 0 1.25rem; font-size: 0.95rem; }
+  .fm-modal-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
+  .fm-modal-actions button { padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.9rem; cursor: pointer; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); }
+  .fm-modal-actions button.fm-confirm { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom:0.25rem;">Fleet Tree</h1>
+<p class="muted" style="margin-top:0;">Radiating out from the fleet: job site &rarr; site &rarr; equipment type &rarr; unit. Drag a node to reposition it, or drop a unit onto a different job site/site box to move it there. Drag empty space to pan, scroll/pinch to zoom, click a node to expand or collapse it, click a unit to open it.</p>
+{% csrf_token %}
+
+<div class="card">
+  <div class="map-legend" style="display:flex;">
+    <span class="tree-dot tree-dot-overdue"></span> Overdue
+    <span class="tree-dot tree-dot-due_soon" style="margin-left:0.8rem;"></span> Due soon
+    <span class="tree-dot tree-dot-ok" style="margin-left:0.8rem;"></span> OK
+    <span class="tree-dot tree-dot-unknown" style="margin-left:0.8rem;"></span> Unknown / no service history
+  </div>
+</div>
+
+<div class="fm-controls">
+  <button type="button" class="map-filter-btn" id="fm-reset">Reset view</button>
+  <button type="button" class="map-filter-btn" id="fm-expand-all">Expand all</button>
+</div>
+
+<div class="fm-modal-backdrop" id="fm-confirm-backdrop">
+  <div class="fm-modal">
+    <p id="fm-confirm-text"></p>
+    <div class="fm-modal-actions">
+      <button type="button" id="fm-confirm-cancel">Cancel</button>
+      <button type="button" class="fm-confirm" id="fm-confirm-ok">Move it</button>
+    </div>
+  </div>
+</div>
+
+<div id="fleet-map-wrap">
+  <svg id="fleet-svg"></svg>
+</div>
+
+{{ fleet_tree|json_script:"fleet-tree-data" }}
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+(function () {
+  const data = JSON.parse(document.getElementById('fleet-tree-data').textContent);
+  const statusColor = { overdue: '#dc2626', due_soon: '#d97706', ok: '#16a34a', unknown: '#6b7280' };
+  const radiusStep = 190;
+  const maxDepth = 4;
+  const csrftoken = document.querySelector('input[name=csrfmiddlewaretoken]').value;
+
+  const modalBackdrop = document.getElementById('fm-confirm-backdrop');
+  const modalText = document.getElementById('fm-confirm-text');
+  const modalOk = document.getElementById('fm-confirm-ok');
+  const modalCancel = document.getElementById('fm-confirm-cancel');
+
+  function showConfirm(message, { okLabel = 'Move it', showCancel = true } = {}) {
+    return new Promise((resolve) => {
+      modalText.textContent = message;
+      modalOk.textContent = okLabel;
+      modalCancel.style.display = showCancel ? '' : 'none';
+      modalBackdrop.classList.add('open');
+      function cleanup(result) {
+        modalBackdrop.classList.remove('open');
+        modalOk.removeEventListener('click', onOk);
+        modalCancel.removeEventListener('click', onCancel);
+        modalBackdrop.removeEventListener('click', onBackdrop);
+        resolve(result);
+      }
+      function onOk() { cleanup(true); }
+      function onCancel() { cleanup(false); }
+      function onBackdrop(e) { if (e.target === modalBackdrop) cleanup(false); }
+      modalOk.addEventListener('click', onOk);
+      modalCancel.addEventListener('click', onCancel);
+      modalBackdrop.addEventListener('click', onBackdrop);
+    });
+  }
+
+  function notify(message) {
+    return showConfirm(message, { okLabel: 'OK', showCancel: false });
+  }
+
+  function nodeX(d) { return d.y * Math.sin(d.x); }
+  function nodeY(d) { return -d.y * Math.cos(d.x); }
+
+  function nodeLines(d) {
+    if (d.depth === 0) {
+      return [{ text: d.data.name, weight: 700, size: 15 }];
+    }
+    if (d.data.level === 'unit') {
+      const lines = [{ text: d.data.name, weight: 700, size: 12.5 }];
+      lines.push({
+        text: d.data.hours != null ? `${d.data.hours} hrs` : 'no hours yet',
+        size: 10.5, muted: true,
+      });
+      const bits = [];
+      if (d.data.open_faults) bits.push(`${d.data.open_faults} fault${d.data.open_faults === 1 ? '' : 's'}`);
+      if (d.data.open_issues) bits.push(`${d.data.open_issues} issue${d.data.open_issues === 1 ? '' : 's'}`);
+      if (bits.length) lines.push({ text: bits.join(', '), size: 10.5, muted: true });
+      return lines;
+    }
+    const bits = [`${d.data.count} unit${d.data.count === 1 ? '' : 's'}`];
+    if (d.data.open_faults) bits.push(`${d.data.open_faults} fault${d.data.open_faults === 1 ? '' : 's'}`);
+    if (d.data.open_issues) bits.push(`${d.data.open_issues} issue${d.data.open_issues === 1 ? '' : 's'}`);
+    return [
+      { text: d.data.name, weight: 700, size: 12 },
+      { text: bits.join(', '), size: 10, muted: true },
+    ];
+  }
+
+  const svgEl = document.getElementById('fleet-svg');
+  const svg = d3.select(svgEl);
+
+  function boxSize() {
+    return { w: svgEl.clientWidth || 900, h: svgEl.clientHeight || 720 };
+  }
+
+  function syncViewBox() {
+    const { w, h } = boxSize();
+    svg.attr('viewBox', `${-w / 2} ${-h / 2} ${w} ${h}`);
+  }
+  syncViewBox();
+
+  const g = svg.append('g');
+  let linksSel = null;
+
+  for (let i = 1; i <= maxDepth; i++) {
+    g.append('circle').attr('class', 'fm-ring').attr('r', radiusStep * i);
+  }
+
+  const zoomBehavior = d3.zoom()
+    .scaleExtent([0.2, 4])
+    .filter((event) => !event.target.closest('.fm-node'))
+    .on('zoom', (event) => {
+      g.attr('transform', event.transform);
+    });
+  svg.call(zoomBehavior);
+
+  const root = d3.hierarchy(data);
+
+  const treeLayout = d3.tree()
+    .size([2 * Math.PI, radiusStep * maxDepth])
+    .separation((a, b) => (a.parent === b.parent ? 1.4 : 2.6) / Math.max(a.depth, 1));
+
+  function px(d) { return d._manualX != null ? d._manualX : nodeX(d); }
+  function py(d) { return d._manualY != null ? d._manualY : nodeY(d); }
+
+  function linkPath(d) {
+    return `M${px(d.source)},${py(d.source)}L${px(d.target)},${py(d.target)}`;
+  }
+
+  function expandAll() {
+    root.each(n => {
+      if (n._collapsedChildren) {
+        n.children = n._collapsedChildren;
+        n._collapsedChildren = null;
+      }
+    });
+  }
+
+  function nodeTooltip(d) {
+    const bits = [];
+    if (d.data.level === 'unit') {
+      bits.push(d.data.hours != null ? `${d.data.hours} hrs logged yet` : 'no hours logged yet');
+    } else {
+      bits.push(`${d.data.count} unit${d.data.count === 1 ? '' : 's'}`);
+    }
+    if (d.data.open_faults) bits.push(`${d.data.open_faults} fault${d.data.open_faults === 1 ? '' : 's'}`);
+    if (d.data.open_issues) bits.push(`${d.data.open_issues} issue${d.data.open_issues === 1 ? '' : 's'}`);
+    return `${d.data.name} — ${bits.join(', ')}`;
+  }
+
+  function zoomToFit(duration) {
+    const bounds = g.node().getBBox();
+    if (!bounds.width || !bounds.height) return;
+    const { w, h } = boxSize();
+    const midX = bounds.x + bounds.width / 2;
+    const midY = bounds.y + bounds.height / 2;
+    let scale = 0.9 * Math.min(w / bounds.width, h / bounds.height);
+    scale = Math.max(0.2, Math.min(4, scale));
+    const transform = d3.zoomIdentity.translate(-scale * midX, -scale * midY).scale(scale);
+    (duration ? svg.transition().duration(duration) : svg).call(zoomBehavior.transform, transform);
+  }
+
+  function render() {
+    treeLayout(root);
+
+    const links = g.selectAll('path.fm-link').data(root.links());
+    links.exit().remove();
+    linksSel = links.enter().append('path').attr('class', 'fm-link').merge(links).attr('d', linkPath);
+
+    const nodes = g.selectAll('g.fm-node').data(root.descendants());
+    nodes.exit().remove();
+
+    const nodesEnter = nodes.enter().append('g');
+    nodesEnter.append('rect');
+    nodesEnter.append('text');
+    nodesEnter.append('title');
+
+    const nodesMerge = nodesEnter.merge(nodes)
+      .attr('class', d => 'fm-node' + (d.depth === 0 ? ' root' : ''))
+      .attr('transform', d => `translate(${px(d)},${py(d)})`);
+
+    nodesMerge.each(function (d) {
+      const nodeSel = d3.select(this);
+      const textSel = nodeSel.select('text');
+      textSel.selectAll('tspan').remove();
+      textSel.attr('text-anchor', 'middle');
+
+      const lines = nodeLines(d);
+      const lineHeight = 13;
+      const startY = -((lines.length - 1) * lineHeight) / 2 + 4;
+      lines.forEach((line, i) => {
+        textSel.append('tspan')
+          .attr('x', 0)
+          .attr('y', startY + i * lineHeight)
+          .attr('font-weight', line.weight || 400)
+          .attr('font-size', line.size || 10.5)
+          .attr('fill', line.muted ? 'rgba(255,255,255,0.85)' : '#ffffff')
+          .text(line.text);
+      });
+
+      const bbox = textSel.node().getBBox();
+      const padX = 12, padY = 8;
+      const w = Math.max(bbox.width + padX * 2, d.depth === 0 ? 80 : 54);
+      const h = bbox.height + padY * 2;
+      d._boxW = w;
+      d._boxH = h;
+
+      nodeSel.select('rect')
+        .attr('x', -w / 2)
+        .attr('y', -h / 2)
+        .attr('width', w)
+        .attr('height', h)
+        .attr('rx', 9)
+        .attr('ry', 9)
+        .attr('fill', statusColor[d.data.status] || '#6b7280');
+    });
+
+    nodesMerge.select('title').text(nodeTooltip);
+
+    nodesMerge.call(dragBehavior);
+  }
+
+  function activateNode(d) {
+    if (d.data.level === 'unit') {
+      window.location.href = d.data.url;
+      return;
+    }
+    if (d.depth === 0) {
+      expandAll();
+      render();
+      return;
+    }
+    if (d.children) {
+      d._collapsedChildren = d.children;
+      d.children = null;
+    } else if (d._collapsedChildren) {
+      d.children = d._collapsedChildren;
+      d._collapsedChildren = null;
+    }
+    render();
+  }
+
+  function findDropTarget(dragged) {
+    let found = null;
+    root.each((n) => {
+      if (n === dragged || (n.data.level !== 'site' && n.data.level !== 'location')) return;
+      const hw = (n._boxW || 100) / 2, hh = (n._boxH || 30) / 2;
+      const nx = px(n), ny = py(n), dx = px(dragged), dy = py(dragged);
+      if (dx >= nx - hw && dx <= nx + hw && dy >= ny - hh && dy <= ny + hh) found = n;
+    });
+    return found;
+  }
+
+  function snapBack(d) {
+    delete d._manualX;
+    delete d._manualY;
+    render();
+  }
+
+  async function handleUnitDrop(unitNode) {
+    const target = findDropTarget(unitNode);
+    g.selectAll('.fm-node').classed('fm-drop-target', false);
+    if (!target) return; // dropped on empty space: keep it as a cosmetic reposition
+
+    const targetIsCustomer = target.data.level === 'site';
+    const targetCustomerId = targetIsCustomer ? target.data.customer_id : target.parent.data.customer_id;
+    const targetCustomerName = targetIsCustomer ? target.data.name : target.parent.data.name;
+    const targetSiteName = targetIsCustomer ? '' : target.data.name;
+
+    const currentCustomerName = unitNode.parent.parent.parent.data.name;
+    const currentSiteName = unitNode.parent.parent.data.name;
+    if (targetCustomerName === currentCustomerName && targetSiteName === currentSiteName) {
+      snapBack(unitNode);
+      return;
+    }
+
+    const destLabel = targetSiteName ? `${targetCustomerName} — ${targetSiteName}` : `${targetCustomerName} (no site set)`;
+    const confirmed = await showConfirm(`Move ${unitNode.data.name} to ${destLabel}?`);
+    if (!confirmed) {
+      snapBack(unitNode);
+      return;
+    }
+
+    try {
+      const resp = await fetch(`/api/equipment/${unitNode.data.id}/reassign/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrftoken },
+        body: new URLSearchParams({ customer_id: targetCustomerId, site_name: targetSiteName }),
+      });
+      if (resp.ok) {
+        window.location.reload();
+      } else {
+        await notify('Could not move that unit. Please try again.');
+        snapBack(unitNode);
+      }
+    } catch (err) {
+      await notify('Could not reach the server to move that unit.');
+      snapBack(unitNode);
+    }
+  }
+
+  const dragBehavior = d3.drag()
+    .on('start', function (event, d) {
+      d._dragMoved = false;
+      d3.select(this).raise();
+    })
+    .on('drag', function (event, d) {
+      if (Math.abs(event.dx) > 0.5 || Math.abs(event.dy) > 0.5) d._dragMoved = true;
+      d._manualX = px(d) + event.dx;
+      d._manualY = py(d) + event.dy;
+      d3.select(this).attr('transform', `translate(${d._manualX},${d._manualY})`);
+      if (linksSel) linksSel.attr('d', linkPath);
+      if (d.data.level === 'unit') {
+        const target = findDropTarget(d);
+        g.selectAll('.fm-node').classed('fm-drop-target', (n) => n === target);
+      }
+    })
+    .on('end', function (event, d) {
+      if (!d._dragMoved) {
+        activateNode(d);
+        return;
+      }
+      if (d.data.level === 'unit') handleUnitDrop(d);
+    });
+
+  render();
+  zoomToFit();
+
+  document.getElementById('fm-reset').addEventListener('click', () => {
+    zoomToFit(300);
+  });
+  document.getElementById('fm-expand-all').addEventListener('click', () => {
+    expandAll();
+    render();
+  });
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      syncViewBox();
+      zoomToFit();
+    }, 150);
+  });
+})();
+</script>
+{% endblock %}

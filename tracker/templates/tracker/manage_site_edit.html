@@ -1,0 +1,38 @@
+{% extends "tracker/base.html" %}
+{% block title %}Edit {{ site.name }}{% endblock %}
+{% block content %}
+<p><a class="back-link" href="{% url 'manage_view' %}">&larr; Manage Fleet</a></p>
+<h1>Edit {{ site.name }}</h1>
+
+<div class="card">
+  <form method="post">
+    {% csrf_token %}
+    <div style="display:flex; flex-direction:column; gap:1rem; max-width:420px;">
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Site name</label>
+        <input type="text" name="name" value="{{ site.name }}" required style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Customer</label>
+        <select name="customer_id" required style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px;">
+          {% for c in customers %}<option value="{{ c.pk }}" {% if c.pk == site.customer_id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <button type="submit" style="padding:0.6rem 1.2rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; width:fit-content;">Save changes</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Equipment at this site</h2>
+  <table>
+    <tr><th>Label</th><th>Make / Model</th></tr>
+    {% for eq in equipment_at_site %}
+    <tr>
+      <td><a class="equip-link" href="{% url 'equipment_detail' eq.pk %}">{{ eq.label }}</a></td>
+      <td>{{ eq.make }} {{ eq.model }}</td>
+    </tr>
+    {% empty %}<tr><td colspan="2" class="muted">No equipment assigned here right now.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

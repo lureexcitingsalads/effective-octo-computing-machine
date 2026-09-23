@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Equipment Tracker{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f6f8; --card-bg: #ffffff; --text: #14181f; --muted: #6b7280;
+    --border: #e7e9ee; --accent: #4f46e5; --accent-dark: #4338ca;
+    --danger: #dc2626; --success: #16a34a; --warn: #d97706;
+    --shadow-sm: 0 1px 2px rgba(15,23,42,0.05), 0 1px 1px rgba(15,23,42,0.03);
+    --shadow-md: 0 8px 24px rgba(15,23,42,0.08);
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3 { font-weight: 800; letter-spacing: -0.02em; }
+  h1 { font-size: 1.75rem; }
+  header { background: #111827; color: white; padding: 1rem 1.75rem; box-shadow: 0 1px 0 rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.18); position: relative; z-index: 10; }
+  header a { color: white; text-decoration: none; font-weight: 600; font-size: 1.1rem; }
+  main { max-width: 1080px; margin: 0 auto; padding: 2rem 1.5rem; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.4rem 1.5rem; margin-bottom: 1.25rem; box-shadow: var(--shadow-sm); }
+  .card h2 { margin-top: 0; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  tbody tr:hover { background: #fafbfc; }
+  .muted { color: var(--muted); font-size: 0.875rem; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .badge-fault { background: #fee2e2; color: var(--danger); }
+  .badge-clear { background: #dcfce7; color: var(--success); }
+  a.equip-link { text-decoration: none; color: var(--accent); font-weight: 600; }
+  a.equip-link:hover { color: var(--accent-dark); }
+  a.back-link { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+  .map-filter-btn {
+    background: var(--card-bg); border: 1px solid var(--border); color: var(--text);
+    padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; margin-right: 0.4rem;
+    font-family: inherit; transition: border-color 0.15s, background 0.15s;
+  }
+  .map-filter-btn:hover { border-color: var(--accent); }
+  .map-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .status-pill { display: inline-block; padding: 0.2rem 0.7rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+  .status-overdue { background: #fee2e2; color: var(--danger); }
+  .status-due_soon { background: #fef3c7; color: #b45309; }
+  .status-ok { background: #dcfce7; color: var(--success); }
+  .status-unknown { background: #f3f4f6; color: var(--muted); }
+  .map-legend { align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--muted); }
+  .legend-gradient { width: 160px; height: 10px; border-radius: 4px; background: linear-gradient(to right, hsl(120,85%,45%), hsl(60,85%,45%), hsl(0,85%,45%)); }
+  nav.top-nav { display: flex; align-items: center; gap: 1.6rem; }
+  nav.top-nav a.brand { font-size: 1.1rem; letter-spacing: -0.01em; }
+  nav.top-nav a.nav-link { font-weight: 500; opacity: 0.75; padding: 0.3rem 0; border-bottom: 2px solid transparent; transition: opacity 0.15s, border-color 0.15s; }
+  nav.top-nav a.nav-link:hover { opacity: 1; }
+  nav.top-nav a.nav-link.active { opacity: 1; border-bottom-color: var(--accent); }
+  .calendar-table { table-layout: fixed; }
+  .calendar-table th { padding: 0.5rem; text-align: center; color: var(--muted); font-size: 0.8rem; border: none; }
+  .calendar-cell { border: 1px solid var(--border); vertical-align: top; height: 96px; padding: 0.3rem; font-size: 0.75rem; }
+  .calendar-out { background: #fafafa; }
+  .calendar-out .calendar-date { color: #cbd5e1; }
+  .calendar-today { background: #eef2ff; }
+  .calendar-date { font-weight: 600; margin-bottom: 0.25rem; }
+  .calendar-item { display: block; background: #fef3c7; color: #92400e; border-radius: 4px; padding: 0.1rem 0.35rem; margin-bottom: 0.15rem; text-decoration: none; font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  @media (max-width: 640px) {
+    main { padding: 1rem; }
+    nav.top-nav { flex-wrap: wrap; row-gap: 0.6rem; }
+    nav.top-nav > span { margin-left: 0 !important; width: 100%; justify-content: space-between; }
+    table { display: block; overflow-x: auto; white-space: nowrap; font-size: 0.82rem; }
+    .card form > div[style*="display:flex"] { flex-direction: column; align-items: stretch; }
+    input[type="text"], input[type="password"], select {
+      width: 100%; min-height: 44px; font-size: 16px;
+    }
+    form button[type="submit"] { min-height: 44px; font-size: 16px; width: 100%; }
+  }
+</style>
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<header>
+  <nav class="top-nav">
+    <a class="brand" href="{% url 'dashboard_view' %}">Equipment Tracker</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'dashboard_view' %} active{% endif %}" href="{% url 'dashboard_view' %}">Dashboard</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'fleet_map_view' %} active{% endif %}" href="{% url 'fleet_map_view' %}">Fleet Map</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'fleet_tree_view' %} active{% endif %}" href="{% url 'fleet_tree_view' %}">Fleet Tree</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'equipment_list' or request.resolver_match.url_name == 'equipment_detail' %} active{% endif %}" href="{% url 'equipment_list' %}">Equipment</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'work_orders_view' or request.resolver_match.url_name == 'work_order_detail' %} active{% endif %}" href="{% url 'work_orders_view' %}">Work Orders</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'manage_view' or request.resolver_match.url_name == 'manage_equipment_edit' or request.resolver_match.url_name == 'manage_site_edit' %} active{% endif %}" href="{% url 'manage_view' %}">Manage</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'schedule_view' %} active{% endif %}" href="{% url 'schedule_view' %}">Schedule</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'reports_view' %} active{% endif %}" href="{% url 'reports_view' %}">Reports</a>
+    {% if user.is_authenticated %}
+    <span style="margin-left:auto; display:flex; align-items:center; gap:1rem;">
+      <span class="muted" style="color:#cbd5e1;">{{ user.username }}</span>
+      <form method="post" action="{% url 'logout' %}" style="margin:0;">
+        {% csrf_token %}
+        <button type="submit" class="nav-link" style="background:none; border:none; font:inherit; cursor:pointer; padding:0;">Log out</button>
+      </form>
+    </span>
+    {% endif %}
+  </nav>
+</header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

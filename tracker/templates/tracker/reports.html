@@ -1,0 +1,100 @@
+{% extends "tracker/base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h1>Fleet Reports</h1>
+
+<div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem;">
+  <div class="card" style="flex:1; min-width:180px; margin-bottom:0;">
+    <h2>Total Spend</h2>
+    <p style="font-size:1.8rem; font-weight:700; margin:0;">${{ total_cost|floatformat:2 }}</p>
+  </div>
+  <div class="card" style="flex:1; min-width:180px; margin-bottom:0;">
+    <h2>Open Work Orders</h2>
+    <p style="font-size:1.8rem; font-weight:700; margin:0;">{{ total_open_work_orders }}</p>
+  </div>
+  <div class="card" style="flex:1; min-width:180px; margin-bottom:0;">
+    <h2>Fleet Uptime</h2>
+    <p style="font-size:1.8rem; font-weight:700; margin:0;">{% if fleet_uptime_pct != None %}{{ fleet_uptime_pct }}%{% else %}—{% endif %}</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Labor vs. Parts</h2>
+  <p class="muted" style="margin-top:0;">Completed work orders only, broken out from their itemized cost lines.</p>
+  <div style="display:flex; gap:2rem; flex-wrap:wrap;">
+    <div>
+      <div style="font-size:1.4rem; font-weight:800; letter-spacing:-0.02em;">${{ total_labor_cost|floatformat:2 }}</div>
+      <div class="muted">Labor</div>
+    </div>
+    <div>
+      <div style="font-size:1.4rem; font-weight:800; letter-spacing:-0.02em;">${{ total_parts_cost|floatformat:2 }}</div>
+      <div class="muted">Parts</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Cost by Equipment</h2>
+  {% if cost_chart.labels %}
+  <div style="height:240px;">
+    <canvas id="costChart"></canvas>
+  </div>
+  {% else %}
+  <p class="muted">No costs recorded yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Cost by Customer</h2>
+  <table>
+    <tr><th>Customer</th><th>Total Spend</th></tr>
+    {% for customer, cost in cost_by_customer.items %}
+    <tr><td>{{ customer }}</td><td>${{ cost|floatformat:2 }}</td></tr>
+    {% empty %}<tr><td colspan="2" class="muted">No costs recorded yet.</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h2>Uptime &amp; Downtime</h2>
+  <table>
+    <tr><th>Equipment</th><th>Customer</th><th>Uptime</th><th>Downtime (hrs)</th><th>Open Work Orders</th></tr>
+    {% for row in uptime_rows %}
+    <tr>
+      <td><a class="equip-link" href="{% url 'equipment_detail' row.equipment.pk %}">{{ row.equipment.label }}</a></td>
+      <td>{{ row.equipment.customer.name }}</td>
+      <td>{{ row.uptime_pct }}%</td>
+      <td>{{ row.downtime_hours }}</td>
+      <td>{% if row.open_work_orders %}<span class="badge badge-fault">{{ row.open_work_orders }}</span>{% else %}<span class="muted">0</span>{% endif %}</td>
+    </tr>
+    {% empty %}<tr><td colspan="5" class="muted">No equipment yet.</td></tr>{% endfor %}
+  </table>
+  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Uptime is measured from each machine's first logged reading to now, counting any work order marked "takes equipment out of service" as downtime for its open duration.</p>
+</div>
+
+{{ cost_chart|json_script:"cost-chart-data" }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+const costData = JSON.parse(document.getElementById('cost-chart-data').textContent);
+if (costData.labels.length) {
+  new Chart(document.getElementById('costChart'), {
+    type: 'bar',
+    data: {
+      labels: costData.labels,
+      datasets: [{
+        label: 'Cost ($)', data: costData.costs,
+        backgroundColor: '#4f46e5', borderRadius: 6, maxBarThickness: 48,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { title: { display: true, text: 'USD' }, grid: { color: '#e7e9ee' } },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+}
+</script>
+{% endblock %}

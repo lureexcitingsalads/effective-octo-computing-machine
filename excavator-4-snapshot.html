@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Excavator 4</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --card-bg: #ffffff; --text: #1a1d23; --muted: #6b7280;
+    --border: #e5e7eb; --accent: #2563eb; --danger: #dc2626; --success: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: #111827; color: white; padding: 1rem 1.5rem; }
+  header a { color: white; text-decoration: none; font-weight: 600; font-size: 1.1rem; }
+  main { max-width: 1000px; margin: 0 auto; padding: 1.5rem; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem; }
+  .card h2 { margin-top: 0; font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  th { color: var(--muted); font-weight: 600; }
+  .muted { color: var(--muted); font-size: 0.875rem; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .badge-fault { background: #fee2e2; color: var(--danger); }
+  .badge-clear { background: #dcfce7; color: var(--success); }
+  a.equip-link { text-decoration: none; color: var(--accent); font-weight: 600; }
+  a.back-link { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+  .map-filter-btn {
+    background: var(--card-bg); border: 1px solid var(--border); color: var(--text);
+    padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.85rem; cursor: pointer; margin-right: 0.4rem;
+  }
+  .map-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .status-pill { display: inline-block; padding: 0.2rem 0.7rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+  .status-overdue { background: #fee2e2; color: var(--danger); }
+  .status-due_soon { background: #fef3c7; color: #b45309; }
+  .status-ok { background: #dcfce7; color: var(--success); }
+  .status-unknown { background: #f3f4f6; color: var(--muted); }
+  .map-legend { align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--muted); }
+  .legend-gradient { width: 160px; height: 10px; border-radius: 4px; background: linear-gradient(to right, hsl(120,85%,45%), hsl(60,85%,45%), hsl(0,85%,45%)); }
+  nav.top-nav { display: flex; align-items: center; gap: 1.5rem; }
+  nav.top-nav a.brand { font-size: 1.1rem; }
+  nav.top-nav a.nav-link { font-weight: 500; opacity: 0.85; }
+  nav.top-nav a.nav-link:hover { opacity: 1; }
+  .calendar-table { table-layout: fixed; }
+  .calendar-table th { padding: 0.5rem; text-align: center; color: var(--muted); font-size: 0.8rem; border: none; }
+  .calendar-cell { border: 1px solid var(--border); vertical-align: top; height: 96px; padding: 0.3rem; font-size: 0.75rem; }
+  .calendar-out { background: #fafafa; }
+  .calendar-out .calendar-date { color: #cbd5e1; }
+  .calendar-today { background: #eff6ff; }
+  .calendar-date { font-weight: 600; margin-bottom: 0.25rem; }
+  .calendar-item { display: block; background: #fef3c7; color: #92400e; border-radius: 4px; padding: 0.1rem 0.35rem; margin-bottom: 0.15rem; text-decoration: none; font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+
+</head>
+<body>
+<header>
+  <nav class="top-nav">
+    <a class="brand" href="#">Equipment Tracker</a>
+    <a class="nav-link" href="#">Overview</a>
+    <a class="nav-link" href="#">Equipment</a>
+    <a class="nav-link" href="#">Schedule</a>
+    <a class="nav-link" href="#">Reports</a>
+
+    <span style="margin-left:auto; display:flex; align-items:center; gap:1rem;">
+      <span class="muted" style="color:#cbd5e1;">admin</span>
+      <span class="nav-link" style="opacity:0.6;">Log out</span>
+    </span>
+
+  </nav>
+</header>
+<main>
+<p style="margin-bottom:1rem;"><span class="back-link">&larr; All equipment</span> <span class="muted" style="font-size:0.8rem;">(static snapshot &mdash; navigation isn't live in this file)</span></p>
+<h1 style="margin-bottom:0">Excavator 4</h1>
+<p class="muted" style="margin-top:0.25rem">Caterpillar 336 &middot; Acme Site Services</p>
+
+<div class="card">
+  <h2>Issues</h2>
+  <table>
+    <tbody><tr><th>Reported</th><th>By</th><th>Severity</th><th>Description</th><th>Status</th></tr>
+    <tr><td colspan="5" class="muted">No issues reported.</td></tr>
+  </tbody></table>
+  <p class="muted" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem; font-size:0.8rem;">The live app has a form here to report new issues &mdash; not interactive in this static snapshot.</p>
+</div>
+
+<div class="card">
+  <h2>Work Orders</h2>
+  <table>
+    <tbody><tr><th>Title</th><th>Assigned</th><th>Status</th><th>Down?</th><th>Cost</th><th>Opened</th></tr>
+
+    <tr>
+      <td>Diagnose low battery voltage fault</td>
+      <td>&mdash;</td>
+      <td>
+        <span class="status-pill status-ok">Completed</span>
+      </td>
+      <td><span class="muted">No</span></td>
+      <td>$0</td>
+      <td>2026-09-21</td>
+    </tr>
+
+    <tr>
+      <td>Oil and filter change</td>
+      <td>J. Smith</td>
+      <td>
+        <span class="status-pill status-unknown">In Progress</span>
+      </td>
+      <td><span class="badge badge-fault">Down</span></td>
+      <td>$340.00</td>
+      <td>2026-09-21</td>
+    </tr>
+
+  </tbody></table>
+  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Completing a work order automatically logs it to Maintenance History with its cost, so the forecast above updates on its own. (Not interactive in this static snapshot.)</p>
+</div>
+
+<div class="card">
+  <h2>Maintenance Forecast</h2>
+
+  <table>
+    <tbody><tr><th>Task</th><th>Interval</th><th>Last performed</th><th>Hours remaining</th><th>Forecast date</th><th>Status</th></tr>
+
+    <tr>
+      <td>Oil and filter change</td>
+      <td>250.0h</td>
+      <td>2026-06-15 @ 1195.0h</td>
+      <td>-15.5</td>
+      <td>2026-09-16</td>
+      <td>
+        <span class="status-pill status-overdue">Overdue</span>
+      </td>
+    </tr>
+
+    <tr>
+      <td>Air filter inspection</td>
+      <td>500.0h</td>
+      <td>2026-06-18 @ 1200.0h</td>
+      <td>239.5</td>
+      <td>2026-12-17</td>
+      <td>
+        <span class="status-pill status-ok">OK</span>
+      </td>
+    </tr>
+
+  </tbody></table>
+  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Forecast dates use this machine's own average hours/day from its logged history, not a generic calendar estimate.</p>
+
+</div>
+
+<div class="card">
+  <h2>Hours</h2>
+  <canvas id="hoursChart" height="90"></canvas>
+</div>
+
+<div class="card">
+  <h2>Location &amp; Conditions</h2>
+
+  <div style="margin-bottom:0.75rem">
+    <button type="button" class="map-filter-btn active" data-mode="none">Path</button>
+    <button type="button" class="map-filter-btn" data-mode="pm25">PM2.5</button>
+    <button type="button" class="map-filter-btn" data-mode="vibration">Vibration/impact</button>
+    <button type="button" class="map-filter-btn" data-mode="speed">Speed</button>
+  </div>
+  <div id="mapLegend" class="map-legend" style="display:none">
+    <span>Low</span>
+    <div class="legend-gradient"></div>
+    <span id="legendMaxLabel">High</span>
+  </div>
+  <div id="trackMap" style="height:420px; border-radius:6px;"></div>
+
+</div>
+
+<div class="card">
+  <h2>Oil Analysis Trend</h2>
+  <canvas id="oilChart" height="90"></canvas>
+</div>
+
+<div class="card">
+  <h2>Fault Events</h2>
+  <table>
+    <tbody><tr><th>Code</th><th>Description</th><th>First seen</th><th>Status</th></tr>
+
+    <tr>
+      <td class="muted">SPN 100 / FMI 1</td><td>Engine Oil Pressure &mdash; below normal range &mdash; most severe</td><td>2026-09-21</td>
+      <td>
+        <span class="badge badge-fault">Active</span>
+      </td>
+    </tr>
+
+    <tr>
+      <td class="muted">SPN 168 / FMI 18</td><td>Electrical Potential (Battery Voltage) &mdash; below normal range &mdash; moderately severe</td><td>2026-09-13</td>
+      <td>
+        <span class="badge badge-fault">Active</span>
+      </td>
+    </tr>
+
+    <tr>
+      <td class="muted">SPN 110 / FMI 16</td><td>Engine Coolant Temperature &mdash; above normal range &mdash; moderately severe</td><td>2026-07-23</td>
+      <td>
+        <span class="badge badge-clear">Cleared 2026-07-26</span>
+      </td>
+    </tr>
+
+  </tbody></table>
+</div>
+
+<div class="card">
+  <h2>Maintenance History</h2>
+  <table>
+    <tbody><tr><th>Date</th><th>Description</th><th>Hours</th><th>Cost</th></tr>
+
+    <tr>
+      <td>2026-09-21</td><td>Diagnose low battery voltage fault</td>
+      <td>1460.5</td><td>&mdash;</td>
+    </tr>
+
+    <tr>
+      <td>2026-06-18</td><td>Air filter inspection</td>
+      <td>1200.0</td><td>&mdash;</td>
+    </tr>
+
+    <tr>
+      <td>2026-06-15</td><td>Oil and filter change</td>
+      <td>1195.0</td><td>340.00</td>
+    </tr>
+
+  </tbody></table>
+</div>
+
+<div class="card">
+  <h2>Oil Sample Detail</h2>
+  <table>
+    <tbody><tr><th>Date</th><th>Hours</th><th>Iron (ppm)</th><th>Copper (ppm)</th><th>Silicon (ppm)</th><th>Lab note</th></tr>
+
+    <tr>
+      <td>2026-06-15</td><td>1195.0</td>
+      <td>15</td><td>8</td>
+      <td>5</td><td class="muted">Normal wear, no action needed.</td>
+    </tr>
+
+    <tr>
+      <td>2026-07-31</td><td>1310.0</td>
+      <td>22</td><td>10</td>
+      <td>9</td><td class="muted">Slight upward trend, continue monitoring.</td>
+    </tr>
+
+    <tr>
+      <td>2026-09-16</td><td>1415.0</td>
+      <td>38</td><td>14</td>
+      <td>18</td><td class="muted">Silicon trending upward &mdash; inspect air intake seal/filter for dust ingress.</td>
+    </tr>
+
+  </tbody></table>
+</div>
+
+<script id="hours-chart-data" type="application/json">{"labels": ["2026-06-13", "2026-06-27", "2026-07-11", "2026-07-25", "2026-08-08", "2026-08-22", "2026-09-05", "2026-09-19", "2026-09-21"], "hours": [1180.0, 1205.0, 1248.0, 1290.0, 1335.0, 1378.0, 1415.0, 1453.0, 1460.5]}</script>
+<script id="oil-chart-data" type="application/json">{"labels": ["2026-06-15", "2026-07-31", "2026-09-16"], "iron": [15, 22, 38], "copper": [8, 10, 14], "silicon": [5, 9, 18]}</script>
+<script id="map-data" type="application/json">{"path": [[39.7392, -104.9893], [39.739584, -104.989249], [39.739995, -104.989356], [39.740361, -104.989634], [39.74061, -104.990057], [39.740681, -104.990568], [39.740546, -104.991087], [39.740215, -104.991526], [39.739736, -104.991807], [39.739187, -104.991884], [39.738658, -104.991747], [39.738234, -104.991428], [39.737975, -104.990989], [39.737908, -104.990512], [39.73802, -104.990076], [39.738268, -104.989745], [39.738591, -104.989552], [39.738923, -104.9895], [39.739212, -104.989566], [39.739427, -104.989709], [39.739559, -104.989888], [39.739618, -104.99007], [39.739624, -104.990234], [39.739596, -104.990379], [39.739544, -104.990509], [39.739465, -104.990632], [39.73935, -104.990745], [39.739186, -104.990836], [39.738972, -104.990878], [39.738722, -104.99084], [39.738468, -104.990696], [39.73826, -104.990438], [39.738152, -104.990083], [39.738191, -104.989675], [39.738399, -104.989281], [39.738766, -104.988975], [39.73925, -104.988825], [39.739776, -104.988873], [39.740258, -104.989126], [39.7392, -104.9893], [39.739584, -104.989249], [39.739995, -104.989356], [39.740361, -104.989634], [39.74061, -104.990057], [39.740681, -104.990568], [39.740546, -104.991087], [39.740613, -104.989551], [39.740215, -104.991526], [39.739736, -104.991807], [39.739187, -104.991884], [39.738658, -104.991747], [39.738234, -104.991428], [39.737975, -104.990989], [39.737908, -104.990512], [39.73802, -104.990076], [39.738268, -104.989745], [39.738591, -104.989552], [39.738923, -104.9895], [39.7395, -104.9901]], "current": [39.7395, -104.9901], "pm25": [[39.7392, -104.9893, 12.3], [39.739584, -104.989249, 10.5], [39.739995, -104.989356, 108.1], [39.740361, -104.989634, 116.2], [39.74061, -104.990057, 116.8], [39.740681, -104.990568, 17.2], [39.740546, -104.991087, 14.7], [39.740215, -104.991526, 13.6], [39.739736, -104.991807, 9.8], [39.739187, -104.991884, 16.1], [39.738658, -104.991747, 15.1], [39.738234, -104.991428, 17.9], [39.737975, -104.990989, 11.5], [39.737908, -104.990512, 17.9], [39.73802, -104.990076, 13.5], [39.738268, -104.989745, 11.8], [39.738591, -104.989552, 8.8], [39.738923, -104.9895, 15.7], [39.739212, -104.989566, 10.0], [39.739427, -104.989709, 16.2], [39.739559, -104.989888, 8.6], [39.739618, -104.99007, 11.8], [39.739624, -104.990234, 14.0], [39.739596, -104.990379, 14.2], [39.739544, -104.990509, 13.8], [39.739465, -104.990632, 9.9], [39.73935, -104.990745, 13.9], [39.739186, -104.990836, 8.3], [39.738972, -104.990878, 16.7], [39.738722, -104.99084, 14.5], [39.738468, -104.990696, 9.5], [39.73826, -104.990438, 16.9], [39.738152, -104.990083, 11.1], [39.738191, -104.989675, 13.2], [39.738399, -104.989281, 13.0], [39.738766, -104.988975, 13.6], [39.73925, -104.988825, 17.1], [39.739776, -104.988873, 10.0], [39.740258, -104.989126, 99.9], [39.7392, -104.9893, 12.4], [39.739584, -104.989249, 15.0], [39.739995, -104.989356, 130.3], [39.740361, -104.989634, 60.1], [39.74061, -104.990057, 103.2], [39.740681, -104.990568, 10.5], [39.740546, -104.991087, 8.6], [39.740613, -104.989551, 94.6], [39.740215, -104.991526, 10.2], [39.739736, -104.991807, 8.7], [39.739187, -104.991884, 17.6], [39.738658, -104.991747, 16.6], [39.738234, -104.991428, 9.1], [39.737975, -104.990989, 11.8], [39.737908, -104.990512, 15.5], [39.73802, -104.990076, 9.7], [39.738268, -104.989745, 17.6], [39.738591, -104.989552, 16.4], [39.738923, -104.9895, 13.6], [39.7395, -104.9901, 11.4]], "vibration": [[39.7392, -104.9893, 1.21], [39.739584, -104.989249, 1.72], [39.739995, -104.989356, 0.82], [39.740361, -104.989634, 1.43], [39.74061, -104.990057, 1.02], [39.740681, -104.990568, 1.19], [39.740546, -104.991087, 0.69], [39.740215, -104.991526, 1.37], [39.739736, -104.991807, 0.67], [39.739187, -104.991884, 1.57], [39.738658, -104.991747, 6.55], [39.738234, -104.991428, 4.82], [39.737975, -104.990989, 5.55], [39.737908, -104.990512, 0.57], [39.73802, -104.990076, 0.59], [39.738268, -104.989745, 1.42], [39.738591, -104.989552, 0.92], [39.738923, -104.9895, 1.7], [39.739212, -104.989566, 0.93], [39.739427, -104.989709, 0.59], [39.739559, -104.989888, 1.38], [39.739618, -104.99007, 0.56], [39.739624, -104.990234, 1.46], [39.739596, -104.990379, 1.35], [39.739544, -104.990509, 1.67], [39.739465, -104.990632, 0.58], [39.73935, -104.990745, 0.7], [39.739186, -104.990836, 0.61], [39.738972, -104.990878, 1.68], [39.738722, -104.99084, 5.73], [39.738468, -104.990696, 7.33], [39.73826, -104.990438, 1.39], [39.738152, -104.990083, 1.54], [39.738191, -104.989675, 0.88], [39.738399, -104.989281, 1.57], [39.738766, -104.988975, 1.65], [39.73925, -104.988825, 1.57], [39.739776, -104.988873, 1.68], [39.740258, -104.989126, 0.91], [39.7392, -104.9893, 1.24], [39.739584, -104.989249, 0.63], [39.739995, -104.989356, 1.12], [39.740361, -104.989634, 1.05], [39.74061, -104.990057, 1.27], [39.740681, -104.990568, 1.31], [39.740546, -104.991087, 0.78], [39.740613, -104.989551, 0.94], [39.740215, -104.991526, 1.18], [39.739736, -104.991807, 0.57], [39.739187, -104.991884, 0.64], [39.738658, -104.991747, 6.21], [39.738234, -104.991428, 7.26], [39.737975, -104.990989, 5.33], [39.737908, -104.990512, 0.65], [39.73802, -104.990076, 0.52], [39.738268, -104.989745, 1.45], [39.738591, -104.989552, 1.36], [39.738923, -104.9895, 0.71], [39.7395, -104.9901, 0.9]], "speed": [[39.7392, -104.9893, 0.0], [39.739584, -104.989249, 0.0], [39.739995, -104.989356, 0.0], [39.740361, -104.989634, 0.0], [39.74061, -104.990057, 4.8], [39.740681, -104.990568, 0.0], [39.740546, -104.991087, 0.0], [39.740215, -104.991526, 4.6], [39.739736, -104.991807, 0.0], [39.739187, -104.991884, 3.7], [39.738658, -104.991747, 0.0], [39.738234, -104.991428, 0.0], [39.737975, -104.990989, 0.0], [39.737908, -104.990512, 0.0], [39.73802, -104.990076, 2.4], [39.738268, -104.989745, 0.0], [39.738591, -104.989552, 3.2], [39.738923, -104.9895, 4.0], [39.739212, -104.989566, 4.5], [39.739427, -104.989709, 4.7], [39.739559, -104.989888, 0.0], [39.739618, -104.99007, 0.0], [39.739624, -104.990234, 2.2], [39.739596, -104.990379, 0.0], [39.739544, -104.990509, 0.0], [39.739465, -104.990632, 0.0], [39.73935, -104.990745, 0.0], [39.739186, -104.990836, 5.5], [39.738972, -104.990878, 3.7], [39.738722, -104.99084, 0.0], [39.738468, -104.990696, 5.2], [39.73826, -104.990438, 2.2], [39.738152, -104.990083, 0.0], [39.738191, -104.989675, 5.0], [39.738399, -104.989281, 0.0], [39.738766, -104.988975, 3.1], [39.73925, -104.988825, 0.0], [39.739776, -104.988873, 2.5], [39.740258, -104.989126, 0.0], [39.7392, -104.9893, 0.0], [39.739584, -104.989249, 4.3], [39.739995, -104.989356, 0.0], [39.740361, -104.989634, 5.4], [39.74061, -104.990057, 0.0], [39.740681, -104.990568, 2.8], [39.740546, -104.991087, 5.9], [39.740613, -104.989551, 4.5], [39.740215, -104.991526, 0.0], [39.739736, -104.991807, 0.0], [39.739187, -104.991884, 2.9], [39.738658, -104.991747, 5.9], [39.738234, -104.991428, 0.0], [39.737975, -104.990989, 0.0], [39.737908, -104.990512, 2.3], [39.73802, -104.990076, 4.5], [39.738268, -104.989745, 5.0], [39.738591, -104.989552, 0.0], [39.738923, -104.9895, 0.0], [39.7395, -104.9901, 1.2]]}</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const hoursData = JSON.parse(document.getElementById('hours-chart-data').textContent);
+const oilData = JSON.parse(document.getElementById('oil-chart-data').textContent);
+
+if (hoursData.labels.length) {
+  new Chart(document.getElementById('hoursChart'), {
+    type: 'line',
+    data: {
+      labels: hoursData.labels,
+      datasets: [{
+        label: 'Engine hours',
+        data: hoursData.hours,
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37,99,235,0.1)',
+        tension: 0.2,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { title: { display: true, text: 'Hours' } } }
+    }
+  });
+}
+
+if (oilData.labels.length) {
+  new Chart(document.getElementById('oilChart'), {
+    type: 'line',
+    data: {
+      labels: oilData.labels,
+      datasets: [
+        { label: 'Iron (ppm)', data: oilData.iron, borderColor: '#dc2626', tension: 0.2 },
+        { label: 'Copper (ppm)', data: oilData.copper, borderColor: '#d97706', tension: 0.2 },
+        { label: 'Silicon (ppm)', data: oilData.silicon, borderColor: '#16a34a', tension: 0.2 },
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: { y: { title: { display: true, text: 'ppm' } } }
+    }
+  });
+}
+
+const mapData = JSON.parse(document.getElementById('map-data').textContent);
+if (mapData.path.length) {
+  const map = L.map('trackMap');
+  map.fitBounds(L.latLngBounds(mapData.path), { padding: [20, 20] });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  const basePath = L.polyline(mapData.path, { color: '#2563eb', weight: 3, opacity: 0.6 }).addTo(map);
+
+  if (mapData.current) {
+    L.circleMarker(mapData.current, {
+      radius: 8, color: '#111827', fillColor: '#2563eb', fillOpacity: 1, weight: 2,
+    }).addTo(map).bindPopup('Current position').openPopup();
+  }
+
+  function colorForValue(value, max) {
+    const t = Math.max(0, Math.min(1, value / max));
+    return `hsl(${120 * (1 - t)}, 85%, 45%)`;
+  }
+
+  const overlay = L.layerGroup().addTo(map);
+  const legend = document.getElementById('mapLegend');
+  const legendMax = document.getElementById('legendMaxLabel');
+
+  function showColoredPath(points, max, unit) {
+    overlay.clearLayers();
+    if (!points || !points.length) {
+      legend.style.display = 'none';
+      basePath.setStyle({ opacity: 0.6 });
+      return;
+    }
+    basePath.setStyle({ opacity: 0 });
+    for (let i = 0; i < points.length - 1; i++) {
+      const [lat1, lon1, val] = points[i];
+      const [lat2, lon2] = points[i + 1];
+      L.polyline([[lat1, lon1], [lat2, lon2]], {
+        color: colorForValue(val, max), weight: 5, opacity: 0.9,
+      }).addTo(overlay);
+    }
+    legend.style.display = 'flex';
+    legendMax.textContent = `High (${max} ${unit})`;
+  }
+
+  document.querySelectorAll('.map-filter-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.map-filter-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      const mode = btn.dataset.mode;
+      if (mode === 'pm25') showColoredPath(mapData.pm25, 150, 'µg/m³');
+      else if (mode === 'vibration') showColoredPath(mapData.vibration, 8, 'intensity');
+      else if (mode === 'speed') showColoredPath(mapData.speed, 8, 'km/h');
+      else showColoredPath(null);
+    });
+  });
+}
+</script>
+</main>
+</body></html>

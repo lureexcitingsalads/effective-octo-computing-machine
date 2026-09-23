@@ -1,0 +1,46 @@
+{% extends "tracker/base.html" %}
+{% block title %}Schedule{% endblock %}
+{% block content %}
+<h1>Maintenance Schedule</h1>
+
+{% if overdue %}
+<div class="card" style="border-color:#fecaca">
+  <h2>Overdue &mdash; act now</h2>
+  <table>
+    <tr><th>Equipment</th><th>Customer</th><th>Task</th><th>Hours overdue</th></tr>
+    {% for item in overdue %}
+    <tr>
+      <td><a class="equip-link" href="{% url 'equipment_detail' item.equipment.pk %}">{{ item.equipment.label }}</a></td>
+      <td>{{ item.equipment.customer.name }}</td>
+      <td>{{ item.schedule.task_name }}</td>
+      <td>{{ item.hours_remaining|floatformat:0 }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+    <a class="back-link" href="?year={{ prev_year }}&month={{ prev_month }}">&larr; Prev</a>
+    <h2 style="margin:0; text-transform:none; font-size:1.1rem; color:var(--text)">{{ month_label }}</h2>
+    <a class="back-link" href="?year={{ next_year }}&month={{ next_month }}">Next &rarr;</a>
+  </div>
+  <table class="calendar-table">
+    <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr>
+    {% for week in weeks %}
+    <tr>
+      {% for day in week %}
+      <td class="calendar-cell{% if not day.in_month %} calendar-out{% endif %}{% if day.is_today %} calendar-today{% endif %}">
+        <div class="calendar-date">{{ day.date.day }}</div>
+        {% for item in day.items %}
+        <a class="calendar-item" href="{% url 'equipment_detail' item.equipment.pk %}" title="{{ item.equipment.label }}: {{ item.schedule.task_name }}">{{ item.equipment.label }}: {{ item.schedule.task_name }}</a>
+        {% endfor %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Dates are forecasts from each machine's own hours-per-day rate, not fixed calendar reminders &mdash; they shift as real usage comes in.</p>
+</div>
+{% endblock %}

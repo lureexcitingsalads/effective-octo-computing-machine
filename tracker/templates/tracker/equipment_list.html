@@ -1,0 +1,28 @@
+{% extends "tracker/base.html" %}
+{% block title %}Equipment{% endblock %}
+{% block content %}
+<h1>Equipment</h1>
+<div class="card">
+<table>
+<tr><th>Equipment</th><th>Customer</th><th>Latest hours</th><th>Open faults</th><th>Open issues</th></tr>
+{% for eq in equipment %}
+<tr>
+  <td>
+    <a class="equip-link" href="{% url 'equipment_detail' eq.pk %}">{{ eq.label }}</a><br>
+    <span class="muted">{{ eq.make }} {{ eq.model }}</span>
+  </td>
+  <td>{{ eq.customer.name }}</td>
+  <td>{{ eq.hour_readings.first.engine_hours|default:"—" }}</td>
+  <td>
+    {% if eq.open_fault_count %}<span class="badge badge-fault">{{ eq.open_fault_count }}</span>{% else %}<span class="muted">0</span>{% endif %}
+  </td>
+  <td>
+    {% if eq.open_issue_count %}<span class="badge badge-fault">{{ eq.open_issue_count }}</span>{% else %}<span class="muted">0</span>{% endif %}
+  </td>
+</tr>
+{% empty %}
+<tr><td colspan="5" class="muted">No equipment yet.</td></tr>
+{% endfor %}
+</table>
+</div>
+{% endblock %}
