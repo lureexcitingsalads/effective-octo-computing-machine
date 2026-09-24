@@ -54,7 +54,70 @@
 <div class="fm-controls">
   <button type="button" class="map-filter-btn" id="fm-reset">Reset view</button>
   <button type="button" class="map-filter-btn" id="fm-expand-all">Expand all</button>
+  {% if request.user.is_superuser or request.user.profile.role != "technician" %}
+  <span style="margin-left:auto; display:flex; gap:0.5rem;">
+    <button type="button" class="map-filter-btn active" id="fm-new-site-btn">+ New site</button>
+    <button type="button" class="map-filter-btn active" id="fm-new-equipment-btn">+ New equipment</button>
+  </span>
+  {% endif %}
 </div>
+
+{% if request.user.is_superuser or request.user.profile.role != "technician" %}
+<div class="fm-modal-backdrop" id="fm-new-site-backdrop">
+  <div class="fm-modal">
+    <h3 style="margin-top:0;">New site</h3>
+    <form id="fm-new-site-form">
+      <input type="hidden" name="action" value="create_site">
+      <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Site name</label>
+      <input type="text" name="name" required placeholder='e.g. Site 14 &ndash; North Pit' style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px; margin-bottom:0.75rem;">
+      <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Customer</label>
+      <select name="customer_id" required style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px; margin-bottom:1rem;">
+        <option value="">Select...</option>
+        {% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
+      </select>
+      <div class="fm-modal-actions">
+        <button type="button" class="fm-new-cancel">Cancel</button>
+        <button type="submit" class="fm-confirm">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="fm-modal-backdrop" id="fm-new-equipment-backdrop">
+  <div class="fm-modal">
+    <h3 style="margin-top:0;">New equipment</h3>
+    <form id="fm-new-equipment-form">
+      <input type="hidden" name="action" value="create_equipment">
+      <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Label</label>
+      <input type="text" name="label" required placeholder="e.g. Excavator 9" style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px; margin-bottom:0.75rem;">
+      <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Customer</label>
+      <select name="customer_id" required style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px; margin-bottom:0.75rem;">
+        <option value="">Select...</option>
+        {% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
+      </select>
+      <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Site (optional)</label>
+      <select name="site_id" style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px; margin-bottom:0.75rem;">
+        <option value="">Unassigned</option>
+        {% for s in sites %}<option value="{{ s.pk }}">{{ s.name }} ({{ s.customer.name }})</option>{% endfor %}
+      </select>
+      <div style="display:flex; gap:0.6rem;">
+        <div style="flex:1;">
+          <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Make</label>
+          <input type="text" name="make" placeholder="Caterpillar" style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px; margin-bottom:1rem;">
+        </div>
+        <div style="flex:1;">
+          <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Model</label>
+          <input type="text" name="model" style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px; margin-bottom:1rem;">
+        </div>
+      </div>
+      <div class="fm-modal-actions">
+        <button type="button" class="fm-new-cancel">Cancel</button>
+        <button type="submit" class="fm-confirm">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <div class="fm-modal-backdrop" id="fm-confirm-backdrop">
   <div class="fm-modal">
@@ -77,7 +140,7 @@
 (function () {
   const data = JSON.parse(document.getElementById('fleet-tree-data').textContent);
   const statusColor = { overdue: '#dc2626', due_soon: '#d97706', ok: '#16a34a', unknown: '#6b7280' };
-  const radiusStep = 190;
+  const radiusStep = 105;
   const maxDepth = 4;
   const csrftoken = document.querySelector('input[name=csrfmiddlewaretoken]').value;
 
@@ -170,9 +233,18 @@
 
   const root = d3.hierarchy(data);
 
+  // Start collapsed: only the root and its direct (customer-level) children show at first --
+  // everything below that is one click away instead of sprawled across the screen on load.
+  root.each((n) => {
+    if (n.depth > 0 && n.children) {
+      n._collapsedChildren = n.children;
+      n.children = null;
+    }
+  });
+
   const treeLayout = d3.tree()
     .size([2 * Math.PI, radiusStep * maxDepth])
-    .separation((a, b) => (a.parent === b.parent ? 1.4 : 2.6) / Math.max(a.depth, 1));
+    .separation((a, b) => (a.parent === b.parent ? 1 : 1.6) / Math.max(a.depth, 1));
 
   function px(d) { return d._manualX != null ? d._manualX : nodeX(d); }
   function py(d) { return d._manualY != null ? d._manualY : nodeY(d); }
@@ -396,6 +468,39 @@
       zoomToFit();
     }, 150);
   });
+
+  function wireCreateModal(btnId, backdropId, formId) {
+    const btn = document.getElementById(btnId);
+    const backdrop = document.getElementById(backdropId);
+    if (!btn || !backdrop) return;
+    const form = document.getElementById(formId);
+    const close = () => backdrop.classList.remove('open');
+
+    btn.addEventListener('click', () => backdrop.classList.add('open'));
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+    backdrop.querySelectorAll('.fm-new-cancel').forEach((b) => b.addEventListener('click', close));
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = new URLSearchParams(new FormData(form));
+      body.set('csrfmiddlewaretoken', csrftoken);
+      try {
+        const resp = await fetch('/manage/', { method: 'POST', headers: { 'X-CSRFToken': csrftoken }, body });
+        if (resp.ok) {
+          window.location.reload();
+        } else {
+          close();
+          await notify('Could not create that. Please try again.');
+        }
+      } catch (err) {
+        close();
+        await notify('Could not reach the server.');
+      }
+    });
+  }
+
+  wireCreateModal('fm-new-site-btn', 'fm-new-site-backdrop', 'fm-new-site-form');
+  wireCreateModal('fm-new-equipment-btn', 'fm-new-equipment-backdrop', 'fm-new-equipment-form');
 })();
 </script>
 {% endblock %}

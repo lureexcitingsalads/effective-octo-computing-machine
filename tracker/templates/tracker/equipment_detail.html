@@ -2,11 +2,64 @@
 {% block title %}{{ equipment.label }}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .eq-hero {
+    border-radius: var(--radius); padding: 1.5rem 1.75rem; margin-bottom: 1.25rem;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+    gap: 1.5rem; color: white; box-shadow: var(--shadow-md);
+  }
+  .eq-hero-overdue { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+  .eq-hero-due_soon { background: linear-gradient(135deg, #f59e0b, #b45309); }
+  .eq-hero-ok { background: linear-gradient(135deg, #22c55e, #15803d); }
+  .eq-hero-unknown { background: linear-gradient(135deg, #9ca3af, #4b5563); }
+  .eq-hero-label { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; }
+  .eq-hero-sublabel { opacity: 0.9; font-size: 0.9rem; margin-top: 0.2rem; }
+  .eq-hero-stats { display: flex; gap: 1.75rem; flex-wrap: wrap; }
+  .eq-hero-stats > div { text-align: center; min-width: 64px; }
+  .eq-hero-stats strong { display: block; font-size: 1.6rem; font-weight: 800; line-height: 1; }
+  .eq-hero-stats span { font-size: 0.72rem; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  details.card { padding: 0; }
+  details.card > summary {
+    padding: 1.1rem 1.5rem; cursor: pointer; list-style: none;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.8rem; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.03em; font-weight: 700; user-select: none;
+  }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::after { content: '\25B8'; transition: transform 0.15s; color: var(--muted); font-size: 0.9rem; }
+  details.card[open] > summary::after { transform: rotate(90deg); }
+  details.card > summary:hover { color: var(--text); }
+  details.card > .card-body { padding: 0 1.5rem 1.25rem; }
+  .fm-count-badge {
+    background: var(--border); color: var(--text); border-radius: 999px;
+    padding: 0.1rem 0.55rem; font-size: 0.72rem; margin-left: 0.6rem; text-transform: none; letter-spacing: normal;
+  }
+</style>
 {% endblock %}
 {% block content %}
 <p><a class="back-link" href="{% url 'equipment_list' %}">&larr; All equipment</a></p>
 <h1 style="margin-bottom:0">{{ equipment.label }}</h1>
-<p class="muted" style="margin-top:0.25rem">{{ equipment.make }} {{ equipment.model }} &middot; {{ equipment.customer.name }}</p>
+<p class="muted" style="margin-top:0.25rem">{{ equipment.make }} {{ equipment.model }} &middot; {{ equipment.customer.name }}{% if equipment.site %} &middot; {{ equipment.site.name }}{% endif %}</p>
+
+<div class="eq-hero eq-hero-{{ overall_status }}">
+  <div>
+    <div class="eq-hero-label">
+      {% if is_down %}Down for maintenance
+      {% elif overall_status == "overdue" %}Needs attention
+      {% elif overall_status == "due_soon" %}Due soon
+      {% elif overall_status == "ok" %}Running well
+      {% else %}No service history yet{% endif %}
+    </div>
+    <div class="eq-hero-sublabel">{{ equipment.label }} at a glance</div>
+  </div>
+  <div class="eq-hero-stats">
+    <div><strong>{{ latest_hours|default:"—" }}</strong><span>Hours</span></div>
+    <div><strong>{{ open_fault_count }}</strong><span>Faults</span></div>
+    <div><strong>{{ open_issue_count }}</strong><span>Issues</span></div>
+    <div><strong>{% if utilization_pct != None %}{{ utilization_pct }}%{% else %}&mdash;{% endif %}</strong><span>Util. (30d)</span></div>
+  </div>
+</div>
 
 {% if lifecycle_signals %}
 <div class="card" style="border-left:4px solid var(--accent);">
@@ -17,28 +70,6 @@
   </ul>
 </div>
 {% endif %}
-
-<div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between;">
-    <h2 style="margin:0;">Inspections</h2>
-    <a class="equip-link" href="{% url 'new_inspection' equipment.pk %}">+ New inspection</a>
-  </div>
-  <table>
-    <tr><th>Date</th><th>By</th><th>Hours</th><th>Result</th><th>Notes</th></tr>
-    {% for insp in inspections %}
-    <tr>
-      <td>{{ insp.performed_at|date:"Y-m-d H:i" }}</td>
-      <td>{{ insp.performed_by }}</td>
-      <td>{{ insp.hours_at_inspection|default:"—" }}</td>
-      <td>
-        {% if insp.has_issues %}<span class="badge badge-fault">{{ insp.issue_count }} issue{{ insp.issue_count|pluralize }}</span>
-        {% else %}<span class="badge badge-clear">All OK</span>{% endif %}
-      </td>
-      <td class="muted">{{ insp.notes|default:"—"|truncatechars:40 }}</td>
-    </tr>
-    {% empty %}<tr><td colspan="5" class="muted">No inspections logged yet.</td></tr>{% endfor %}
-  </table>
-</div>
 
 <div class="card">
   <h2>Issues</h2>
@@ -132,7 +163,7 @@
       <button type="submit" style="padding:0.5rem 1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Create</button>
     </div>
   </form>
-  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Completing a work order automatically logs it to Maintenance History with its cost, so the forecast above updates on its own.</p>
+  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Completing a work order automatically logs it to Maintenance History with its cost, so the forecast below updates on its own.</p>
 </div>
 
 <div class="card">
@@ -162,86 +193,120 @@
   {% endif %}
 </div>
 
-<div class="card">
-  <h2>Hours</h2>
-  {% if hours_chart.labels %}
-  <canvas id="hoursChart" height="90"></canvas>
-  {% else %}
-  <p class="muted">No hour readings recorded yet.</p>
-  {% endif %}
-</div>
-
-<div class="card">
-  <h2>Location &amp; Conditions</h2>
-  {% if has_telemetry %}
-  <div style="margin-bottom:0.75rem">
-    <button type="button" class="map-filter-btn active" data-mode="none">Path</button>
-    <button type="button" class="map-filter-btn" data-mode="pm25">PM2.5</button>
-    <button type="button" class="map-filter-btn" data-mode="vibration">Vibration/impact</button>
-    <button type="button" class="map-filter-btn" data-mode="speed">Speed</button>
+<details class="card">
+  <summary><span>Inspections{% if inspections %}<span class="fm-count-badge">{{ inspections|length }}</span>{% endif %}</span></summary>
+  <div class="card-body">
+    <p style="margin-top:0;"><a class="equip-link" href="{% url 'new_inspection' equipment.pk %}">+ New inspection</a></p>
+    <table>
+      <tr><th>Date</th><th>By</th><th>Hours</th><th>Result</th><th>Notes</th></tr>
+      {% for insp in inspections %}
+      <tr>
+        <td>{{ insp.performed_at|date:"Y-m-d H:i" }}</td>
+        <td>{{ insp.performed_by }}</td>
+        <td>{{ insp.hours_at_inspection|default:"—" }}</td>
+        <td>
+          {% if insp.has_issues %}<span class="badge badge-fault">{{ insp.issue_count }} issue{{ insp.issue_count|pluralize }}</span>
+          {% else %}<span class="badge badge-clear">All OK</span>{% endif %}
+        </td>
+        <td class="muted">{{ insp.notes|default:"—"|truncatechars:40 }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="5" class="muted">No inspections logged yet.</td></tr>{% endfor %}
+    </table>
   </div>
-  <div id="mapLegend" class="map-legend" style="display:none">
-    <span>Low</span>
-    <div class="legend-gradient"></div>
-    <span id="legendMaxLabel">High</span>
+</details>
+
+<details class="card">
+  <summary>Hours</summary>
+  <div class="card-body">
+    {% if hours_chart.labels %}
+    <canvas id="hoursChart" height="90"></canvas>
+    {% else %}
+    <p class="muted">No hour readings recorded yet.</p>
+    {% endif %}
   </div>
-  <div id="trackMap" style="height:420px; border-radius:6px;"></div>
-  {% else %}
-  <p class="muted">No location telemetry recorded yet.</p>
-  {% endif %}
-</div>
+</details>
 
-<div class="card">
-  <h2>Oil Analysis Trend</h2>
-  {% if oil_chart.labels %}
-  <canvas id="oilChart" height="90"></canvas>
-  {% else %}
-  <p class="muted">No oil samples recorded yet.</p>
-  {% endif %}
-</div>
+<details class="card">
+  <summary>Location &amp; Conditions</summary>
+  <div class="card-body">
+    {% if has_telemetry %}
+    <div style="margin-bottom:0.75rem">
+      <button type="button" class="map-filter-btn active" data-mode="none">Path</button>
+      <button type="button" class="map-filter-btn" data-mode="pm25">PM2.5</button>
+      <button type="button" class="map-filter-btn" data-mode="vibration">Vibration/impact</button>
+      <button type="button" class="map-filter-btn" data-mode="speed">Speed</button>
+    </div>
+    <div id="mapLegend" class="map-legend" style="display:none">
+      <span>Low</span>
+      <div class="legend-gradient"></div>
+      <span id="legendMaxLabel">High</span>
+    </div>
+    <div id="trackMap" style="height:420px; border-radius:6px;"></div>
+    {% else %}
+    <p class="muted">No location telemetry recorded yet.</p>
+    {% endif %}
+  </div>
+</details>
 
-<div class="card">
-  <h2>Fault Events</h2>
-  <table>
-    <tr><th>Code</th><th>Description</th><th>First seen</th><th>Status</th></tr>
-    {% for f in fault_events %}
-    <tr>
-      <td class="muted">SPN {{ f.spn }} / FMI {{ f.fmi }}</td><td>{{ f.description }}</td><td>{{ f.first_seen_at|date:"Y-m-d" }}</td>
-      <td>
-        {% if f.cleared_at %}<span class="badge badge-clear">Cleared {{ f.cleared_at|date:"Y-m-d" }}</span>
-        {% else %}<span class="badge badge-fault">Active</span>{% endif %}
-      </td>
-    </tr>
-    {% empty %}<tr><td colspan="4" class="muted">None recorded.</td></tr>{% endfor %}
-  </table>
-</div>
+<details class="card">
+  <summary>Oil Analysis Trend</summary>
+  <div class="card-body">
+    {% if oil_chart.labels %}
+    <canvas id="oilChart" height="90"></canvas>
+    {% else %}
+    <p class="muted">No oil samples recorded yet.</p>
+    {% endif %}
+  </div>
+</details>
 
-<div class="card">
-  <h2>Maintenance History</h2>
-  <table>
-    <tr><th>Date</th><th>Description</th><th>Hours</th><th>Cost</th></tr>
-    {% for m in maintenance_records %}
-    <tr>
-      <td>{{ m.performed_at|date:"Y-m-d" }}</td><td>{{ m.description }}</td>
-      <td>{{ m.hours_at_service|default:"—" }}</td><td>{{ m.cost|default:"—" }}</td>
-    </tr>
-    {% empty %}<tr><td colspan="4" class="muted">None recorded.</td></tr>{% endfor %}
-  </table>
-</div>
+<details class="card">
+  <summary><span>Fault Events{% if fault_events %}<span class="fm-count-badge">{{ fault_events|length }}</span>{% endif %}</span></summary>
+  <div class="card-body">
+    <table>
+      <tr><th>Code</th><th>Description</th><th>First seen</th><th>Status</th></tr>
+      {% for f in fault_events %}
+      <tr>
+        <td class="muted">SPN {{ f.spn }} / FMI {{ f.fmi }}</td><td>{{ f.description }}</td><td>{{ f.first_seen_at|date:"Y-m-d" }}</td>
+        <td>
+          {% if f.cleared_at %}<span class="badge badge-clear">Cleared {{ f.cleared_at|date:"Y-m-d" }}</span>
+          {% else %}<span class="badge badge-fault">Active</span>{% endif %}
+        </td>
+      </tr>
+      {% empty %}<tr><td colspan="4" class="muted">None recorded.</td></tr>{% endfor %}
+    </table>
+  </div>
+</details>
 
-<div class="card">
-  <h2>Oil Sample Detail</h2>
-  <table>
-    <tr><th>Date</th><th>Hours</th><th>Iron (ppm)</th><th>Copper (ppm)</th><th>Silicon (ppm)</th><th>Lab note</th></tr>
-    {% for s in oil_samples %}
-    <tr>
-      <td>{{ s.sampled_at|date:"Y-m-d" }}</td><td>{{ s.hours_at_sample|default:"—" }}</td>
-      <td>{{ s.wear_metals.iron|default:"—" }}</td><td>{{ s.wear_metals.copper|default:"—" }}</td>
-      <td>{{ s.wear_metals.silicon|default:"—" }}</td><td class="muted">{{ s.lab_recommendation }}</td>
-    </tr>
-    {% empty %}<tr><td colspan="6" class="muted">None recorded.</td></tr>{% endfor %}
-  </table>
-</div>
+<details class="card">
+  <summary>Maintenance History</summary>
+  <div class="card-body">
+    <table>
+      <tr><th>Date</th><th>Description</th><th>Hours</th><th>Cost</th></tr>
+      {% for m in maintenance_records %}
+      <tr>
+        <td>{{ m.performed_at|date:"Y-m-d" }}</td><td>{{ m.description }}</td>
+        <td>{{ m.hours_at_service|default:"—" }}</td><td>{{ m.cost|default:"—" }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="4" class="muted">None recorded.</td></tr>{% endfor %}
+    </table>
+  </div>
+</details>
+
+<details class="card">
+  <summary>Oil Sample Detail</summary>
+  <div class="card-body">
+    <table>
+      <tr><th>Date</th><th>Hours</th><th>Iron (ppm)</th><th>Copper (ppm)</th><th>Silicon (ppm)</th><th>Lab note</th></tr>
+      {% for s in oil_samples %}
+      <tr>
+        <td>{{ s.sampled_at|date:"Y-m-d" }}</td><td>{{ s.hours_at_sample|default:"—" }}</td>
+        <td>{{ s.wear_metals.iron|default:"—" }}</td><td>{{ s.wear_metals.copper|default:"—" }}</td>
+        <td>{{ s.wear_metals.silicon|default:"—" }}</td><td class="muted">{{ s.lab_recommendation }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="6" class="muted">None recorded.</td></tr>{% endfor %}
+    </table>
+  </div>
+</details>
 
 {{ hours_chart|json_script:"hours-chart-data" }}
 {{ oil_chart|json_script:"oil-chart-data" }}
@@ -252,8 +317,11 @@
 <script>
 const hoursData = JSON.parse(document.getElementById('hours-chart-data').textContent);
 const oilData = JSON.parse(document.getElementById('oil-chart-data').textContent);
+let hoursChartBuilt = false, oilChartBuilt = false, mapBuilt = false;
 
-if (hoursData.labels.length) {
+function buildHoursChart() {
+  if (hoursChartBuilt || !hoursData.labels.length) return;
+  hoursChartBuilt = true;
   new Chart(document.getElementById('hoursChart'), {
     type: 'line',
     data: {
@@ -261,8 +329,8 @@ if (hoursData.labels.length) {
       datasets: [{
         label: 'Engine hours',
         data: hoursData.hours,
-        borderColor: '#2563eb',
-        backgroundColor: 'rgba(37,99,235,0.1)',
+        borderColor: '#4f46e5',
+        backgroundColor: 'rgba(79,70,229,0.1)',
         tension: 0.2,
         fill: true,
       }]
@@ -275,7 +343,9 @@ if (hoursData.labels.length) {
   });
 }
 
-if (oilData.labels.length) {
+function buildOilChart() {
+  if (oilChartBuilt || !oilData.labels.length) return;
+  oilChartBuilt = true;
   new Chart(document.getElementById('oilChart'), {
     type: 'line',
     data: {
@@ -294,7 +364,9 @@ if (oilData.labels.length) {
 }
 
 const mapData = JSON.parse(document.getElementById('map-data').textContent);
-if (mapData.path.length) {
+function buildMap() {
+  if (mapBuilt || !mapData.path.length) return;
+  mapBuilt = true;
   const map = L.map('trackMap');
   map.fitBounds(L.latLngBounds(mapData.path), { padding: [20, 20] });
 
@@ -303,11 +375,11 @@ if (mapData.path.length) {
     maxZoom: 19,
   }).addTo(map);
 
-  const basePath = L.polyline(mapData.path, { color: '#2563eb', weight: 3, opacity: 0.6 }).addTo(map);
+  const basePath = L.polyline(mapData.path, { color: '#4f46e5', weight: 3, opacity: 0.6 }).addTo(map);
 
   if (mapData.current) {
     L.circleMarker(mapData.current, {
-      radius: 8, color: '#111827', fillColor: '#2563eb', fillOpacity: 1, weight: 2,
+      radius: 8, color: '#111827', fillColor: '#4f46e5', fillOpacity: 1, weight: 2,
     }).addTo(map).bindPopup('Current position').openPopup();
   }
 
@@ -351,5 +423,16 @@ if (mapData.path.length) {
     });
   });
 }
+
+// Charts/map only build once their <details> is actually opened -- building a hidden
+// Chart.js canvas or a hidden Leaflet map produces a zero-size, broken render.
+document.querySelectorAll('details.card').forEach((el) => {
+  el.addEventListener('toggle', () => {
+    if (!el.open) return;
+    if (el.querySelector('#hoursChart')) buildHoursChart();
+    if (el.querySelector('#oilChart')) buildOilChart();
+    if (el.querySelector('#trackMap')) buildMap();
+  });
+});
 </script>
 {% endblock %}

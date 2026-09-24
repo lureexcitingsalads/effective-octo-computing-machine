@@ -227,6 +227,18 @@ def equipment_detail(request, pk):
         ],
     }
 
+    maintenance_forecast = _compute_maintenance_forecast(equipment)
+    status_rank = {"ok": 0, "unknown": 1, "due_soon": 2, "overdue": 3}
+    maintenance_status = (
+        max((f["status"] for f in maintenance_forecast), key=status_rank.get) if maintenance_forecast else "unknown"
+    )
+    has_active_fault = fault_events.filter(cleared_at__isnull=True).exists()
+    is_down = equipment.work_orders.filter(equipment_down=True).exclude(
+        status__in=["completed", "cancelled"]
+    ).exists()
+    overall_status = "overdue" if (has_active_fault or is_down) else maintenance_status
+    latest_reading = hour_readings.last()
+
     context = {
         "equipment": equipment,
         "fault_events": fault_events,
@@ -239,8 +251,14 @@ def equipment_detail(request, pk):
         "oil_chart": oil_chart,
         "map_data": map_data,
         "has_telemetry": telemetry_pings.exists(),
-        "maintenance_forecast": _compute_maintenance_forecast(equipment),
+        "maintenance_forecast": maintenance_forecast,
         "lifecycle_signals": _compute_lifecycle_signals(equipment),
+        "overall_status": overall_status,
+        "is_down": is_down,
+        "latest_hours": float(latest_reading.engine_hours) if latest_reading else None,
+        "open_fault_count": fault_events.filter(cleared_at__isnull=True).count(),
+        "open_issue_count": equipment.issues.filter(resolved_at__isnull=True).count(),
+        "utilization_pct": _compute_utilization_pct(equipment, timezone.now()),
     }
     return render(request, "tracker/equipment_detail.html", context)
 
@@ -563,7 +581,12 @@ def fleet_tree_view(request):
         **rollup(all_units),
     }
 
-    return render(request, "tracker/fleet_tree.html", {"fleet_tree": fleet_tree})
+    context = {
+        "fleet_tree": fleet_tree,
+        "customers": Customer.objects.all(),
+        "sites": Site.objects.select_related("customer"),
+    }
+    return render(request, "tracker/fleet_tree.html", context)
 
 
 @login_required
