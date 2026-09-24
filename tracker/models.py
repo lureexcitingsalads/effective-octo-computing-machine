@@ -1,13 +1,36 @@
 import secrets
 from decimal import Decimal
 
+from django.contrib.auth.models import User
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 from .j1939_codes import describe_fault
 
 
 def generate_api_token():
     return secrets.token_hex(20)
+
+
+class UserProfile(models.Model):
+    ROLE_CHOICES = [
+        ("technician", "Technician"),
+        ("supervisor", "Supervisor"),
+        ("admin", "Admin"),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="technician")
+
+    def __str__(self):
+        return f"{self.user.username} ({self.get_role_display()})"
+
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        role = "admin" if instance.is_superuser else "technician"
+        UserProfile.objects.get_or_create(user=instance, defaults={"role": role})
 
 
 class Customer(models.Model):
@@ -117,6 +140,54 @@ class Issue(models.Model):
 
     def __str__(self):
         return f"{self.equipment} - {self.description[:40]}"
+
+
+class Photo(models.Model):
+    """A photo attached to an Issue or a WorkOrder -- exactly one of the two should be set.
+    Two nullable FKs rather than a GenericForeignKey since there are only ever these two
+    targets; simpler to query and reason about than the generic-relation machinery."""
+
+    issue = models.ForeignKey(Issue, on_delete=models.CASCADE, null=True, blank=True, related_name="photos")
+    work_order = models.ForeignKey(
+        "WorkOrder", on_delete=models.CASCADE, null=True, blank=True, related_name="photos"
+    )
+    image = models.ImageField(upload_to="photos/%Y/%m/")
+    caption = models.CharField(max_length=200, blank=True)
+    uploaded_by = models.CharField(max_length=200, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["uploaded_at"]
+
+    def __str__(self):
+        return f"Photo on {self.issue or self.work_order}"
+
+
+class Inspection(models.Model):
+    """A structured pre-shift checklist -- distinct from Issue (free-text, ad-hoc problem
+    reports) in that it's a fixed, repeatable set of checks done routinely, catching things
+    before they become a breakdown rather than after."""
+
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, related_name="inspections")
+    performed_by = models.CharField(max_length=200)
+    performed_at = models.DateTimeField(auto_now_add=True)
+    hours_at_inspection = models.DecimalField(max_digits=10, decimal_places=1, null=True, blank=True)
+    responses = models.JSONField(default=dict, help_text='{"item_key": "ok"|"issue"|"na"}')
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-performed_at"]
+
+    def __str__(self):
+        return f"{self.equipment} - inspection {self.performed_at:%Y-%m-%d}"
+
+    @property
+    def has_issues(self):
+        return any(v == "issue" for v in self.responses.values())
+
+    @property
+    def issue_count(self):
+        return sum(1 for v in self.responses.values() if v == "issue")
 
 
 class MaintenanceSchedule(models.Model):

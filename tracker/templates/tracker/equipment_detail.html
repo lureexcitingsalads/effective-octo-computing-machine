@@ -8,10 +8,42 @@
 <h1 style="margin-bottom:0">{{ equipment.label }}</h1>
 <p class="muted" style="margin-top:0.25rem">{{ equipment.make }} {{ equipment.model }} &middot; {{ equipment.customer.name }}</p>
 
+{% if lifecycle_signals %}
+<div class="card" style="border-left:4px solid var(--accent);">
+  <h2>Worth a Look: Replacement Economics</h2>
+  <p class="muted" style="margin-top:0;">Not an emergency &mdash; a longer-term cost signal worth weighing against a rebuild or replacement.</p>
+  <ul style="margin:0; padding-left:1.2rem;">
+    {% for reason in lifecycle_signals %}<li style="margin-bottom:0.4rem;">{{ reason }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between;">
+    <h2 style="margin:0;">Inspections</h2>
+    <a class="equip-link" href="{% url 'new_inspection' equipment.pk %}">+ New inspection</a>
+  </div>
+  <table>
+    <tr><th>Date</th><th>By</th><th>Hours</th><th>Result</th><th>Notes</th></tr>
+    {% for insp in inspections %}
+    <tr>
+      <td>{{ insp.performed_at|date:"Y-m-d H:i" }}</td>
+      <td>{{ insp.performed_by }}</td>
+      <td>{{ insp.hours_at_inspection|default:"—" }}</td>
+      <td>
+        {% if insp.has_issues %}<span class="badge badge-fault">{{ insp.issue_count }} issue{{ insp.issue_count|pluralize }}</span>
+        {% else %}<span class="badge badge-clear">All OK</span>{% endif %}
+      </td>
+      <td class="muted">{{ insp.notes|default:"—"|truncatechars:40 }}</td>
+    </tr>
+    {% empty %}<tr><td colspan="5" class="muted">No inspections logged yet.</td></tr>{% endfor %}
+  </table>
+</div>
+
 <div class="card">
   <h2>Issues</h2>
   <table>
-    <tr><th>Reported</th><th>By</th><th>Severity</th><th>Description</th><th>Status</th></tr>
+    <tr><th>Reported</th><th>By</th><th>Severity</th><th>Description</th><th>Photos</th><th>Status</th></tr>
     {% for issue in issues %}
     <tr>
       <td>{{ issue.reported_at|date:"Y-m-d" }}</td>
@@ -23,13 +55,18 @@
       </td>
       <td>{{ issue.description }}</td>
       <td>
+        {% for photo in issue.photos.all %}
+        <a href="{{ photo.image.url }}" target="_blank"><img src="{{ photo.image.url }}" alt="" style="width:36px; height:36px; object-fit:cover; border-radius:4px; margin-right:0.2rem; vertical-align:middle;"></a>
+        {% endfor %}
+      </td>
+      <td>
         {% if issue.resolved_at %}<span class="badge badge-clear">Resolved {{ issue.resolved_at|date:"Y-m-d" }}</span>
         {% else %}<span class="muted">Open</span>{% endif %}
       </td>
     </tr>
-    {% empty %}<tr><td colspan="5" class="muted">No issues reported.</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="6" class="muted">No issues reported.</td></tr>{% endfor %}
   </table>
-  <form method="post" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+  <form method="post" enctype="multipart/form-data" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
     {% csrf_token %}
     <input type="hidden" name="action" value="report_issue">
     <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
@@ -44,6 +81,10 @@
           <option value="medium" selected>Medium</option>
           <option value="high">High</option>
         </select>
+      </div>
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Photos (optional)</label>
+        <input type="file" name="photos" accept="image/*" multiple style="padding:0.3rem 0;">
       </div>
       <button type="submit" style="padding:0.5rem 1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Submit</button>
     </div>

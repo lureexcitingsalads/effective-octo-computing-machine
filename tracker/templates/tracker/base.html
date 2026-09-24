@@ -87,9 +87,13 @@
     <a class="nav-link{% if request.resolver_match.url_name == 'fleet_tree_view' %} active{% endif %}" href="{% url 'fleet_tree_view' %}">Fleet Tree</a>
     <a class="nav-link{% if request.resolver_match.url_name == 'equipment_list' or request.resolver_match.url_name == 'equipment_detail' %} active{% endif %}" href="{% url 'equipment_list' %}">Equipment</a>
     <a class="nav-link{% if request.resolver_match.url_name == 'work_orders_view' or request.resolver_match.url_name == 'work_order_detail' %} active{% endif %}" href="{% url 'work_orders_view' %}">Work Orders</a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'manage_view' or request.resolver_match.url_name == 'manage_equipment_edit' or request.resolver_match.url_name == 'manage_site_edit' %} active{% endif %}" href="{% url 'manage_view' %}">Manage</a>
+    {% if request.user.is_superuser or request.user.profile.role != "technician" %}
+    <a class="nav-link{% if request.resolver_match.url_name == 'manage_view' or request.resolver_match.url_name == 'manage_equipment_edit' or request.resolver_match.url_name == 'manage_site_edit' or request.resolver_match.url_name == 'manage_users_view' %} active{% endif %}" href="{% url 'manage_view' %}">Manage</a>
+    {% endif %}
     <a class="nav-link{% if request.resolver_match.url_name == 'schedule_view' %} active{% endif %}" href="{% url 'schedule_view' %}">Schedule</a>
+    {% if request.user.is_superuser or request.user.profile.role != "technician" %}
     <a class="nav-link{% if request.resolver_match.url_name == 'reports_view' %} active{% endif %}" href="{% url 'reports_view' %}">Reports</a>
+    {% endif %}
     {% if user.is_authenticated %}
     <span style="margin-left:auto; display:flex; align-items:center; gap:1rem;">
       <span class="muted" style="color:#cbd5e1;">{{ user.username }}</span>

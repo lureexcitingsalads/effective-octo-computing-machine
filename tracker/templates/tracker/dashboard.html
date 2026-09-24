@@ -79,4 +79,19 @@
     <p class="muted" style="margin:0;">Nothing needs attention right now &mdash; fleet is in good shape.</p>
   {% endif %}
 </div>
+
+{% if lifecycle_flags %}
+<div class="card" style="border-left:4px solid var(--accent);">
+  <h2>Worth a Look: Replacement Economics</h2>
+  <p class="muted" style="margin-top:0;">Longer-term cost signals, not emergencies.</p>
+  {% for flag in lifecycle_flags %}
+  <div class="attention-row">
+    <div>
+      <a class="equip-link" href="{% url 'equipment_detail' flag.equipment.pk %}">{{ flag.equipment.label }}</a>
+      <span class="attention-text"> &mdash; {{ flag.reasons.0 }}{% if flag.reasons|length > 1 %} (+{{ flag.reasons|length|add:"-1" }} more){% endif %}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}

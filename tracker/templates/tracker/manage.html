@@ -1,7 +1,12 @@
 {% extends "tracker/base.html" %}
 {% block title %}Manage{% endblock %}
 {% block content %}
-<h1>Manage Fleet</h1>
+<div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+  <h1 style="margin-bottom:0.25rem;">Manage Fleet</h1>
+  {% if request.user.is_superuser or request.user.profile.role == "admin" %}
+  <a class="equip-link" href="{% url 'manage_users_view' %}">Manage users &rarr;</a>
+  {% endif %}
+</div>
 <p class="muted" style="margin-top:0;">Add and edit machines and job sites.</p>
 
 <div class="card">

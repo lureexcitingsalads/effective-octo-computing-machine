@@ -57,18 +57,19 @@
 <div class="card">
   <h2>Uptime &amp; Downtime</h2>
   <table>
-    <tr><th>Equipment</th><th>Customer</th><th>Uptime</th><th>Downtime (hrs)</th><th>Open Work Orders</th></tr>
+    <tr><th>Equipment</th><th>Customer</th><th>Uptime</th><th>Downtime (hrs)</th><th>Utilization (30d)</th><th>Open Work Orders</th></tr>
     {% for row in uptime_rows %}
     <tr>
       <td><a class="equip-link" href="{% url 'equipment_detail' row.equipment.pk %}">{{ row.equipment.label }}</a></td>
       <td>{{ row.equipment.customer.name }}</td>
       <td>{{ row.uptime_pct }}%</td>
       <td>{{ row.downtime_hours }}</td>
+      <td>{% if row.utilization_pct != None %}{{ row.utilization_pct }}%{% else %}<span class="muted">—</span>{% endif %}</td>
       <td>{% if row.open_work_orders %}<span class="badge badge-fault">{{ row.open_work_orders }}</span>{% else %}<span class="muted">0</span>{% endif %}</td>
     </tr>
-    {% empty %}<tr><td colspan="5" class="muted">No equipment yet.</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="6" class="muted">No equipment yet.</td></tr>{% endfor %}
   </table>
-  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Uptime is measured from each machine's first logged reading to now, counting any work order marked "takes equipment out of service" as downtime for its open duration.</p>
+  <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Uptime is measured from each machine's first logged reading to now, counting any work order marked "takes equipment out of service" as downtime for its open duration. Utilization is engine-hours actually run over the last 30 days divided by calendar time in that window &mdash; how much of the available time this machine was really working.</p>
 </div>
 
 {{ cost_chart|json_script:"cost-chart-data" }}

@@ -14,9 +14,11 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
+from django.views.static import serve
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -24,3 +26,11 @@ urlpatterns = [
     path('accounts/logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('', include('tracker.urls')),
 ]
+
+# Served directly by Django (not gated to DEBUG) so local-disk uploads still work with no S3
+# bucket configured. Fine at this app's scale; swap for a real bucket (see settings.py) once
+# uploads need to survive a Render redeploy.
+if not settings.AWS_STORAGE_BUCKET_NAME:
+    urlpatterns += [
+        path('media/<path:path>', serve, {'document_root': settings.MEDIA_ROOT}),
+    ]

@@ -1,4 +1,5 @@
 import calendar
+import functools
 import json
 import re
 from collections import defaultdict
@@ -6,8 +7,9 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
@@ -15,10 +17,30 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+from .inspection_checklist import CHECKLIST as INSPECTION_CHECKLIST, CRITICAL_ITEMS as INSPECTION_CRITICAL_ITEMS
 from .models import (
-    Customer, Site, Equipment, Issue, WorkOrder, WorkOrderLaborLine, WorkOrderPartLine,
+    UserProfile, Customer, Site, Equipment, Issue, Photo, Inspection, WorkOrder, WorkOrderLaborLine, WorkOrderPartLine,
     MaintenanceRecord, Device, TelemetryPing, HourReading, FaultEvent,
 )
+
+
+def role_required(*roles):
+    """Gate a view to specific UserProfile roles. Superusers always pass, regardless of role
+    (the usual Django convention -- a superuser is never locked out by app-level role checks)."""
+    def decorator(view_func):
+        @functools.wraps(view_func)
+        @login_required
+        def wrapped(request, *args, **kwargs):
+            if request.user.is_superuser:
+                return view_func(request, *args, **kwargs)
+            profile = getattr(request.user, "profile", None)
+            if not profile or profile.role not in roles:
+                return HttpResponseForbidden(
+                    "You don't have access to this page. Ask an admin if that's wrong."
+                )
+            return view_func(request, *args, **kwargs)
+        return wrapped
+    return decorator
 
 
 @login_required
@@ -89,6 +111,55 @@ def _compute_maintenance_forecast(equipment):
     return forecasts
 
 
+def _compute_lifecycle_signals(equipment):
+    """Repair-vs-replace signals. Returns a list of plain-English reasons (empty if none) --
+    a decision this consequential should show its work, not collapse to one opaque score."""
+    reasons = []
+
+    records = list(equipment.maintenance_records.order_by("performed_at"))
+    hour_readings = list(equipment.hour_readings.order_by("recorded_at"))
+    if len(records) >= 2 and len(hour_readings) >= 2:
+        total_cost = sum(float(r.cost or 0) for r in records)
+        lifetime_hours = max(float(hour_readings[-1].engine_hours) - float(hour_readings[0].engine_hours), 1)
+        lifetime_cost_per_hour = total_cost / lifetime_hours
+
+        cutoff = timezone.now() - timedelta(days=90)
+        recent_cost = sum(float(r.cost or 0) for r in records if r.performed_at >= cutoff)
+        recent_readings = [h for h in hour_readings if h.recorded_at >= cutoff]
+        if len(recent_readings) >= 2 and recent_cost > 0 and lifetime_cost_per_hour > 0:
+            recent_hours = float(recent_readings[-1].engine_hours) - float(recent_readings[0].engine_hours)
+            if recent_hours > 0:
+                recent_cost_per_hour = recent_cost / recent_hours
+                if recent_cost_per_hour > lifetime_cost_per_hour * 1.5:
+                    reasons.append(
+                        f"Maintenance cost has averaged ${recent_cost_per_hour:.2f}/hr over the last 90 days, "
+                        f"vs. ${lifetime_cost_per_hour:.2f}/hr over its lifetime"
+                        f" ({recent_cost_per_hour / lifetime_cost_per_hour:.1f}x)"
+                    )
+
+    samples = list(equipment.oil_samples.order_by("sampled_at"))
+    if len(samples) >= 2:
+        first_iron = samples[0].wear_metals.get("iron")
+        last_iron = samples[-1].wear_metals.get("iron")
+        if first_iron and last_iron and last_iron > first_iron * 1.5:
+            reasons.append(
+                f"Iron in oil samples has risen from {first_iron} to {last_iron} ppm "
+                f"since the first sample on record"
+            )
+
+    faults = list(equipment.fault_events.order_by("first_seen_at"))
+    if len(faults) >= 3:
+        midpoint_at = faults[len(faults) // 2].first_seen_at
+        first_half_days = max((midpoint_at - faults[0].first_seen_at).days, 1)
+        second_half_days = max((timezone.now() - midpoint_at).days, 1)
+        first_half_rate = (len(faults) / 2) / first_half_days
+        second_half_rate = (len(faults) / 2) / second_half_days
+        if second_half_rate > first_half_rate * 1.5:
+            reasons.append("Fault codes are appearing more often recently than earlier in this machine's history")
+
+    return reasons
+
+
 @login_required
 def equipment_detail(request, pk):
     equipment = get_object_or_404(Equipment, pk=pk)
@@ -99,12 +170,14 @@ def equipment_detail(request, pk):
         if action == "report_issue":
             description = request.POST.get("description", "").strip()
             if description:
-                Issue.objects.create(
+                issue = Issue.objects.create(
                     equipment=equipment,
                     reported_by=request.user.get_username(),
                     severity=request.POST.get("severity", "medium"),
                     description=description,
                 )
+                for f in request.FILES.getlist("photos"):
+                    Photo.objects.create(issue=issue, image=f, uploaded_by=request.user.get_username())
 
         elif action == "create_workorder":
             title = request.POST.get("title", "").strip()
@@ -161,16 +234,52 @@ def equipment_detail(request, pk):
         "oil_samples": oil_samples,
         "issues": equipment.issues.all(),
         "work_orders": equipment.work_orders.all(),
+        "inspections": equipment.inspections.all()[:10],
         "hours_chart": hours_chart,
         "oil_chart": oil_chart,
         "map_data": map_data,
         "has_telemetry": telemetry_pings.exists(),
         "maintenance_forecast": _compute_maintenance_forecast(equipment),
+        "lifecycle_signals": _compute_lifecycle_signals(equipment),
     }
     return render(request, "tracker/equipment_detail.html", context)
 
 
 @login_required
+def new_inspection_view(request, pk):
+    equipment = get_object_or_404(Equipment, pk=pk)
+
+    if request.method == "POST":
+        responses = {key: request.POST.get(f"item_{key}", "na") for key, _ in INSPECTION_CHECKLIST}
+        performed_by = request.POST.get("performed_by", "").strip() or request.user.get_username()
+        latest = equipment.hour_readings.order_by("-recorded_at").first()
+
+        inspection = Inspection.objects.create(
+            equipment=equipment,
+            performed_by=performed_by,
+            hours_at_inspection=latest.engine_hours if latest else None,
+            responses=responses,
+            notes=request.POST.get("notes", "").strip(),
+        )
+
+        if inspection.has_issues:
+            flagged = [label for key, label in INSPECTION_CHECKLIST if responses.get(key) == "issue"]
+            critical_hit = any(responses.get(key) == "issue" for key in INSPECTION_CRITICAL_ITEMS)
+            severity = "high" if critical_hit or len(flagged) > 1 else "medium"
+            Issue.objects.create(
+                equipment=equipment,
+                reported_by=performed_by,
+                severity=severity,
+                description=f"Pre-shift inspection flagged: {', '.join(flagged)}",
+            )
+
+        return redirect("equipment_detail", pk=pk)
+
+    context = {"equipment": equipment, "checklist": INSPECTION_CHECKLIST}
+    return render(request, "tracker/new_inspection.html", context)
+
+
+@role_required("admin", "supervisor")
 def manage_view(request):
     """Fleet administration: add/edit machines and sites. Deliberately no delete here --
     equipment and sites have too much history hanging off them (readings, faults, work
@@ -209,7 +318,7 @@ def manage_view(request):
     return render(request, "tracker/manage.html", context)
 
 
-@login_required
+@role_required("admin", "supervisor")
 def manage_equipment_edit_view(request, pk):
     equipment = get_object_or_404(Equipment, pk=pk)
 
@@ -231,7 +340,7 @@ def manage_equipment_edit_view(request, pk):
     return render(request, "tracker/manage_equipment_edit.html", context)
 
 
-@login_required
+@role_required("admin", "supervisor")
 def manage_site_edit_view(request, pk):
     site = get_object_or_404(Site, pk=pk)
 
@@ -247,6 +356,45 @@ def manage_site_edit_view(request, pk):
         "equipment_at_site": site.equipment.all(),
     }
     return render(request, "tracker/manage_site_edit.html", context)
+
+
+@role_required("admin")
+def manage_users_view(request):
+    """Account creation and role assignment. Admin-only -- a supervisor shouldn't be able to
+    grant themselves or anyone else admin access."""
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        if action == "create_user":
+            username = request.POST.get("username", "").strip()
+            password = request.POST.get("password", "").strip()
+            role = request.POST.get("role", "technician")
+            if username and password and role in dict(UserProfile.ROLE_CHOICES):
+                if not User.objects.filter(username=username).exists():
+                    user = User.objects.create_user(username=username, password=password)
+                    user.profile.role = role
+                    user.profile.save()
+
+        elif action == "update_role":
+            target = get_object_or_404(User, pk=request.POST.get("user_id"))
+            role = request.POST.get("role")
+            if role in dict(UserProfile.ROLE_CHOICES):
+                target.profile.role = role
+                target.profile.save()
+
+        elif action == "toggle_active":
+            target = get_object_or_404(User, pk=request.POST.get("user_id"))
+            if target != request.user:  # can't deactivate your own account
+                target.is_active = not target.is_active
+                target.save(update_fields=["is_active"])
+
+        return redirect("manage_users_view")
+
+    context = {
+        "users": User.objects.select_related("profile").order_by("username"),
+        "roles": UserProfile.ROLE_CHOICES,
+    }
+    return render(request, "tracker/manage_users.html", context)
 
 
 @login_required
@@ -441,6 +589,21 @@ def reassign_equipment_view(request, pk):
     return JsonResponse({"ok": True})
 
 
+def _compute_utilization_pct(equipment, now, days=30):
+    """Engine-hours actually run over the window, vs. calendar-hours available in it. Uses
+    engine hours rather than GPS speed -- a digging/grading machine can be working hard while
+    stationary, so speed alone would undercount how "used" it really is."""
+    cutoff = now - timedelta(days=days)
+    readings = list(equipment.hour_readings.filter(recorded_at__gte=cutoff).order_by("recorded_at"))
+    if len(readings) < 2:
+        return None
+    hours_run = float(readings[-1].engine_hours) - float(readings[0].engine_hours)
+    calendar_hours = (readings[-1].recorded_at - readings[0].recorded_at).total_seconds() / 3600
+    if calendar_hours <= 0:
+        return None
+    return round(max(0.0, min(100.0, (hours_run / calendar_hours) * 100)), 1)
+
+
 def _compute_uptime_rows(all_equipment, now=None):
     """Per-equipment uptime %, based on time spent under an open equipment_down work order."""
     now = now or timezone.now()
@@ -464,6 +627,7 @@ def _compute_uptime_rows(all_equipment, now=None):
                 "downtime_hours": round(downtime_hours, 1),
                 "uptime_pct": round(uptime_pct, 1),
                 "open_work_orders": open_orders.count(),
+                "utilization_pct": _compute_utilization_pct(equipment, now),
             }
         )
     return uptime_rows
@@ -540,6 +704,12 @@ def dashboard_view(request):
         round(sum(r["uptime_pct"] for r in uptime_rows) / len(uptime_rows), 1) if uptime_rows else None
     )
 
+    lifecycle_flags = []
+    for equipment in all_equipment:
+        reasons = _compute_lifecycle_signals(equipment)
+        if reasons:
+            lifecycle_flags.append({"equipment": equipment, "reasons": reasons})
+
     context = {
         "total_equipment": len(all_equipment),
         "overdue_count": overdue_count,
@@ -550,6 +720,7 @@ def dashboard_view(request):
         "open_work_order_count": open_work_order_count,
         "fleet_uptime_pct": fleet_uptime_pct,
         "attention_items": attention_items[:10],
+        "lifecycle_flags": lifecycle_flags,
     }
     return render(request, "tracker/dashboard.html", context)
 
@@ -623,6 +794,16 @@ def work_order_detail_view(request, pk):
         elif action == "remove_part_line":
             WorkOrderPartLine.objects.filter(pk=request.POST.get("line_id"), work_order=wo).delete()
 
+        elif action == "add_photo":
+            for f in request.FILES.getlist("photos"):
+                Photo.objects.create(
+                    work_order=wo, image=f, uploaded_by=request.user.get_username(),
+                    caption=request.POST.get("caption", "").strip(),
+                )
+
+        elif action == "remove_photo":
+            Photo.objects.filter(pk=request.POST.get("photo_id"), work_order=wo).delete()
+
         elif action == "update_notes":
             wo.assigned_to = request.POST.get("assigned_to", "").strip()
             wo.description = request.POST.get("description", "").strip()
@@ -642,7 +823,7 @@ def work_order_detail_view(request, pk):
     return render(request, "tracker/work_order_detail.html", {"wo": wo})
 
 
-@login_required
+@role_required("admin", "supervisor")
 def reports_view(request):
     all_equipment = Equipment.objects.select_related("customer").all()
     now = timezone.now()

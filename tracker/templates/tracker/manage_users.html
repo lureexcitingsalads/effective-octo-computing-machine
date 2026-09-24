@@ -1,0 +1,69 @@
+{% extends "tracker/base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<p><a class="back-link" href="{% url 'manage_view' %}">&larr; Manage Fleet</a></p>
+<h1>Users</h1>
+<p class="muted" style="margin-top:0;">Technicians can log work orders and report issues. Supervisors and admins can also access Manage and Reports. Only admins can create accounts or change roles.</p>
+
+<div class="card">
+  <table>
+    <tr><th>Username</th><th>Role</th><th>Status</th><th></th></tr>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.username }}{% if u.is_superuser %} <span class="muted">(superuser)</span>{% endif %}</td>
+      <td>
+        {% if u.is_superuser %}
+          <span class="muted">Admin</span>
+        {% else %}
+        <form method="post" style="display:flex; gap:0.4rem; align-items:center;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="update_role">
+          <input type="hidden" name="user_id" value="{{ u.pk }}">
+          <select name="role" onchange="this.form.submit()" style="padding:0.35rem; border:1px solid var(--border); border-radius:6px;">
+            {% for value, label in roles %}
+            <option value="{{ value }}" {% if u.profile.role == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        {% endif %}
+      </td>
+      <td>{% if u.is_active %}<span class="badge badge-clear">Active</span>{% else %}<span class="badge badge-fault">Deactivated</span>{% endif %}</td>
+      <td>
+        {% if u != request.user %}
+        <form method="post" style="display:inline;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="toggle_active">
+          <input type="hidden" name="user_id" value="{{ u.pk }}">
+          <button type="submit" class="wo-remove" style="color:{% if u.is_active %}var(--danger){% else %}var(--success){% endif %}; background:none; border:none; cursor:pointer; font-size:0.85rem;">
+            {% if u.is_active %}Deactivate{% else %}Reactivate{% endif %}
+          </button>
+        </form>
+        {% else %}<span class="muted">(you)</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <form method="post" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create_user">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+      <div style="min-width:160px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Username</label>
+        <input type="text" name="username" required style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:160px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Password</label>
+        <input type="password" name="password" required style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:140px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Role</label>
+        <select name="role" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+          {% for value, label in roles %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <button type="submit" style="padding:0.55rem 1.1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Add user</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

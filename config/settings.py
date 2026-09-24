@@ -136,10 +136,29 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Uploaded files (photos on issues/work orders). Local disk by default -- fine for dev, but
+# Render's free-tier disk is ephemeral, so anything uploaded there vanishes on the next
+# restart/redeploy. If AWS_STORAGE_BUCKET_NAME is set (any S3-compatible bucket -- Cloudflare
+# R2 included, just point AWS_S3_ENDPOINT_URL at it), switch to that instead. Same pattern as
+# DATABASE_URL above: safe local default, real persistence when configured in production.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
+
+AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
+if AWS_STORAGE_BUCKET_NAME:
+    AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+    AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL')  # e.g. R2's account endpoint
+    AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'auto')
+    AWS_DEFAULT_ACL = None
+    AWS_QUERYSTRING_AUTH = False
+    STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage"}
 
 
 # Auth

@@ -1,0 +1,60 @@
+{% extends "tracker/base.html" %}
+{% block title %}Inspect {{ equipment.label }}{% endblock %}
+{% block extra_head %}
+<style>
+  .insp-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .insp-row:last-child { border-bottom: none; }
+  .insp-label { font-weight: 500; flex: 1; min-width: 200px; }
+  .insp-options { display: flex; gap: 0.4rem; }
+  .insp-options input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .insp-options label {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0.5rem 0.9rem; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--muted);
+    min-width: 64px; min-height: 40px; user-select: none;
+  }
+  .insp-options input[value="ok"]:checked + label { background: #dcfce7; border-color: var(--success); color: var(--success); }
+  .insp-options input[value="issue"]:checked + label { background: #fee2e2; border-color: var(--danger); color: var(--danger); }
+  .insp-options input[value="na"]:checked + label { background: #f3f4f6; border-color: var(--border); color: var(--text); }
+</style>
+{% endblock %}
+{% block content %}
+<p><a class="back-link" href="{% url 'equipment_detail' equipment.pk %}">&larr; {{ equipment.label }}</a></p>
+<h1>Pre-Shift Inspection</h1>
+<p class="muted" style="margin-top:0;">{{ equipment.label }} &middot; {{ equipment.customer.name }}</p>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+      <div style="flex:1; min-width:200px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Performed by</label>
+        <input type="text" name="performed_by" value="{{ request.user.get_username }}" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+    </div>
+
+    {% for key, label in checklist %}
+    <div class="insp-row">
+      <span class="insp-label">{{ label }}</span>
+      <div class="insp-options">
+        <input type="radio" name="item_{{ key }}" value="ok" id="{{ key }}_ok" checked>
+        <label for="{{ key }}_ok">OK</label>
+        <input type="radio" name="item_{{ key }}" value="issue" id="{{ key }}_issue">
+        <label for="{{ key }}_issue">Issue</label>
+        <input type="radio" name="item_{{ key }}" value="na" id="{{ key }}_na">
+        <label for="{{ key }}_na">N/A</label>
+      </div>
+    </div>
+    {% endfor %}
+
+    <div style="margin-top:1rem;">
+      <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Notes (optional)</label>
+      <textarea name="notes" rows="3" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px; font-family:inherit;"></textarea>
+    </div>
+
+    <p class="muted" style="margin-top:0.75rem; font-size:0.8rem;">Marking anything "Issue" automatically opens an Issue for this machine so it lands in the normal follow-up workflow.</p>
+
+    <button type="submit" style="margin-top:0.5rem; padding:0.65rem 1.3rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:1rem;">Submit inspection</button>
+  </div>
+</form>
+{% endblock %}

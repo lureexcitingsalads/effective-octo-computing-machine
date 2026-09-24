@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    UserProfile,
     Customer,
     Site,
     Equipment,
@@ -8,7 +9,9 @@ from .models import (
     HourReading,
     FaultEvent,
     Issue,
+    Photo,
     MaintenanceSchedule,
+    Inspection,
     WorkOrder,
     WorkOrderLaborLine,
     WorkOrderPartLine,
@@ -16,6 +19,12 @@ from .models import (
     TelemetryPing,
     OilSample,
 )
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ["user", "role"]
+    list_filter = ["role"]
 
 
 @admin.register(Customer)
@@ -56,6 +65,17 @@ class FaultEventAdmin(admin.ModelAdmin):
 class IssueAdmin(admin.ModelAdmin):
     list_display = ["equipment", "severity", "description", "reported_by", "reported_at", "resolved_at"]
     list_filter = ["equipment", "severity"]
+
+
+@admin.register(Photo)
+class PhotoAdmin(admin.ModelAdmin):
+    list_display = ["__str__", "uploaded_by", "uploaded_at"]
+
+
+@admin.register(Inspection)
+class InspectionAdmin(admin.ModelAdmin):
+    list_display = ["equipment", "performed_by", "performed_at", "has_issues", "issue_count"]
+    list_filter = ["equipment"]
 
 
 @admin.register(MaintenanceSchedule)
