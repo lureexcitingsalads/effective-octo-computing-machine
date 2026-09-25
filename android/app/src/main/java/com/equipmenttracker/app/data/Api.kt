@@ -101,6 +101,80 @@ data class InspectionResponse(val id: Int, @SerialName("has_issues") val hasIssu
 @Serializable
 data class IssueCreatedResponse(val id: Int)
 
+@Serializable
+data class WorkOrderSummaryDto(
+    val id: Int,
+    val title: String,
+    val status: String,
+    @SerialName("equipment_id") val equipmentId: Int,
+    @SerialName("equipment_label") val equipmentLabel: String,
+    @SerialName("assigned_to") val assignedTo: String,
+    @SerialName("equipment_down") val equipmentDown: Boolean,
+    @SerialName("total_cost") val totalCost: Double,
+    @SerialName("created_at") val createdAt: String,
+)
+
+@Serializable
+data class WorkOrderListResponse(@SerialName("work_orders") val workOrders: List<WorkOrderSummaryDto>)
+
+@Serializable
+data class LaborLineDto(
+    val id: Int,
+    val technician: String,
+    val hours: Double,
+    val rate: Double,
+    val note: String,
+    @SerialName("line_total") val lineTotal: Double,
+)
+
+@Serializable
+data class PartLineDto(
+    val id: Int,
+    @SerialName("part_name") val partName: String,
+    val quantity: Double,
+    @SerialName("unit_cost") val unitCost: Double,
+    @SerialName("line_total") val lineTotal: Double,
+)
+
+@Serializable
+data class WorkOrderDetailDto(
+    val id: Int,
+    val title: String,
+    val status: String,
+    @SerialName("equipment_id") val equipmentId: Int,
+    @SerialName("equipment_label") val equipmentLabel: String,
+    @SerialName("assigned_to") val assignedTo: String,
+    @SerialName("equipment_down") val equipmentDown: Boolean,
+    @SerialName("total_cost") val totalCost: Double,
+    @SerialName("created_at") val createdAt: String,
+    val description: String,
+    val customer: String,
+    @SerialName("completed_at") val completedAt: String? = null,
+    @SerialName("labor_total") val laborTotal: Double,
+    @SerialName("parts_total") val partsTotal: Double,
+    @SerialName("labor_lines") val laborLines: List<LaborLineDto> = emptyList(),
+    @SerialName("part_lines") val partLines: List<PartLineDto> = emptyList(),
+)
+
+@Serializable
+data class WorkOrderStatusRequest(val status: String)
+
+@Serializable
+data class WorkOrderStatusResponse(val id: Int, val status: String)
+
+@Serializable
+data class AddLaborLineRequest(val technician: String, val hours: Double, val rate: Double, val note: String)
+
+@Serializable
+data class AddPartLineRequest(
+    @SerialName("part_name") val partName: String,
+    val quantity: Double,
+    @SerialName("unit_cost") val unitCost: Double,
+)
+
+@Serializable
+data class LineAddedResponse(val id: Int, @SerialName("line_total") val lineTotal: Double)
+
 interface ApiService {
     @POST("api/login/")
     suspend fun login(@Body request: LoginRequest): LoginResponse
@@ -130,6 +204,33 @@ interface ApiService {
         @Part("description") description: RequestBody,
         @Part photos: List<MultipartBody.Part>,
     ): IssueCreatedResponse
+
+    @GET("api/work-orders/")
+    suspend fun listWorkOrders(@Header("Authorization") auth: String): WorkOrderListResponse
+
+    @GET("api/work-orders/{id}/")
+    suspend fun getWorkOrder(@Header("Authorization") auth: String, @Path("id") id: Int): WorkOrderDetailDto
+
+    @POST("api/work-orders/{id}/status/")
+    suspend fun updateWorkOrderStatus(
+        @Header("Authorization") auth: String,
+        @Path("id") id: Int,
+        @Body request: WorkOrderStatusRequest,
+    ): WorkOrderStatusResponse
+
+    @POST("api/work-orders/{id}/labor/")
+    suspend fun addLaborLine(
+        @Header("Authorization") auth: String,
+        @Path("id") id: Int,
+        @Body request: AddLaborLineRequest,
+    ): LineAddedResponse
+
+    @POST("api/work-orders/{id}/parts/")
+    suspend fun addPartLine(
+        @Header("Authorization") auth: String,
+        @Path("id") id: Int,
+        @Body request: AddPartLineRequest,
+    ): LineAddedResponse
 }
 
 object ApiClientFactory {

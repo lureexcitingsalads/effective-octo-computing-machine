@@ -16,8 +16,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from .inspection_checklist import CHECKLIST as INSPECTION_CHECKLIST, CRITICAL_ITEMS as INSPECTION_CRITICAL_ITEMS
-from .models import Equipment, UserProfile
+from .models import Equipment, UserProfile, WorkOrder, WorkOrderLaborLine, WorkOrderPartLine
 from .views import (
+    _complete_work_order,
     _compute_lifecycle_signals,
     _compute_maintenance_forecast,
     _compute_utilization_pct,
@@ -199,3 +200,139 @@ def api_report_issue_view(request, pk):
         request.FILES.getlist("photos"),
     )
     return JsonResponse({"id": issue.pk}, status=201)
+
+
+def _work_order_summary_json(wo):
+    return {
+        "id": wo.pk,
+        "title": wo.title,
+        "status": wo.status,
+        "equipment_id": wo.equipment_id,
+        "equipment_label": wo.equipment.label,
+        "assigned_to": wo.assigned_to,
+        "equipment_down": wo.equipment_down,
+        "total_cost": float(wo.total_cost),
+        "created_at": wo.created_at.isoformat(),
+    }
+
+
+@token_required
+@require_GET
+def api_work_orders_list_view(request):
+    show_all = request.GET.get("show") == "all"
+    work_orders = WorkOrder.objects.select_related("equipment").prefetch_related(
+        "labor_lines", "part_lines"
+    )
+    if not show_all:
+        work_orders = work_orders.exclude(status__in=["completed", "cancelled"])
+    return JsonResponse({"work_orders": [_work_order_summary_json(wo) for wo in work_orders]})
+
+
+@token_required
+@require_GET
+def api_work_order_detail_view(request, pk):
+    wo = get_object_or_404(
+        WorkOrder.objects.select_related("equipment", "equipment__customer").prefetch_related(
+            "labor_lines", "part_lines"
+        ),
+        pk=pk,
+    )
+    data = _work_order_summary_json(wo)
+    data.update({
+        "description": wo.description,
+        "customer": wo.equipment.customer.name,
+        "completed_at": wo.completed_at.isoformat() if wo.completed_at else None,
+        "labor_total": float(wo.labor_total),
+        "parts_total": float(wo.parts_total),
+        "labor_lines": [
+            {
+                "id": line.pk,
+                "technician": line.technician,
+                "hours": float(line.hours),
+                "rate": float(line.rate),
+                "note": line.note,
+                "line_total": float(line.line_total),
+            }
+            for line in wo.labor_lines.all()
+        ],
+        "part_lines": [
+            {
+                "id": line.pk,
+                "part_name": line.part_name,
+                "quantity": float(line.quantity),
+                "unit_cost": float(line.unit_cost),
+                "line_total": float(line.line_total),
+            }
+            for line in wo.part_lines.all()
+        ],
+    })
+    return JsonResponse(data)
+
+
+@csrf_exempt
+@token_required
+@require_POST
+def api_work_order_status_view(request, pk):
+    wo = get_object_or_404(WorkOrder, pk=pk)
+    try:
+        payload = _parse_json_body(request)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "body must be valid JSON"}, status=400)
+
+    new_status = payload.get("status")
+    if new_status not in dict(WorkOrder.STATUS_CHOICES):
+        return JsonResponse({"error": "invalid status"}, status=400)
+
+    if new_status == "completed":
+        _complete_work_order(wo, request.user.get_username())
+    else:
+        wo.status = new_status
+        wo.save()
+    return JsonResponse({"id": wo.pk, "status": wo.status})
+
+
+@csrf_exempt
+@token_required
+@require_POST
+def api_add_labor_line_view(request, pk):
+    wo = get_object_or_404(WorkOrder, pk=pk)
+    try:
+        payload = _parse_json_body(request)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "body must be valid JSON"}, status=400)
+
+    hours = payload.get("hours")
+    if not hours:
+        return JsonResponse({"error": "hours is required"}, status=400)
+
+    line = WorkOrderLaborLine.objects.create(
+        work_order=wo,
+        technician=(payload.get("technician") or "").strip() or request.user.get_username(),
+        hours=hours,
+        rate=payload.get("rate") or 120,
+        note=(payload.get("note") or "").strip(),
+    )
+    return JsonResponse({"id": line.pk, "line_total": float(line.line_total)}, status=201)
+
+
+@csrf_exempt
+@token_required
+@require_POST
+def api_add_part_line_view(request, pk):
+    wo = get_object_or_404(WorkOrder, pk=pk)
+    try:
+        payload = _parse_json_body(request)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "body must be valid JSON"}, status=400)
+
+    part_name = (payload.get("part_name") or "").strip()
+    if not part_name:
+        return JsonResponse({"error": "part_name is required"}, status=400)
+
+    line = WorkOrderPartLine.objects.create(
+        work_order=wo,
+        part_name=part_name,
+        quantity=payload.get("quantity") or 1,
+        unit_cost=payload.get("unit_cost") or 0,
+    )
+    return JsonResponse({"id": line.pk, "line_total": float(line.line_total)}, status=201)

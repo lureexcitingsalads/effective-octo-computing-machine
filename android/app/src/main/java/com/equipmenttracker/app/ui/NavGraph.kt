@@ -14,10 +14,13 @@ object Routes {
     const val EQUIPMENT_DETAIL = "equipment_detail/{equipmentId}"
     const val INSPECTION = "inspection/{equipmentId}"
     const val REPORT_ISSUE = "report_issue/{equipmentId}"
+    const val WORK_ORDERS = "work_orders"
+    const val WORK_ORDER_DETAIL = "work_order_detail/{workOrderId}"
 
     fun equipmentDetail(id: Int) = "equipment_detail/$id"
     fun inspection(id: Int) = "inspection/$id"
     fun reportIssue(id: Int) = "report_issue/$id"
+    fun workOrderDetail(id: Int) = "work_order_detail/$id"
 }
 
 @Composable
@@ -35,12 +38,26 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
         composable(Routes.EQUIPMENT_LIST) {
             EquipmentListScreen(
                 onOpenEquipment = { id -> navController.navigate(Routes.equipmentDetail(id)) },
+                onOpenWorkOrders = { navController.navigate(Routes.WORK_ORDERS) },
                 onLoggedOut = {
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
             )
+        }
+        composable(Routes.WORK_ORDERS) {
+            WorkOrdersScreen(
+                onBack = { navController.popBackStack() },
+                onOpenWorkOrder = { id -> navController.navigate(Routes.workOrderDetail(id)) },
+            )
+        }
+        composable(
+            Routes.WORK_ORDER_DETAIL,
+            arguments = listOf(navArgument("workOrderId") { type = NavType.IntType }),
+        ) { backStackEntry ->
+            val id = backStackEntry.arguments?.getInt("workOrderId") ?: return@composable
+            WorkOrderDetailScreen(workOrderId = id, onBack = { navController.popBackStack() })
         }
         composable(
             Routes.EQUIPMENT_DETAIL,

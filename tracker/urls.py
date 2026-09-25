@@ -35,4 +35,13 @@ urlpatterns = [
         name="api_create_inspection",
     ),
     path("api/equipment/<int:pk>/issues/", api.api_report_issue_view, name="api_report_issue"),
+    path("api/work-orders/", api.api_work_orders_list_view, name="api_work_orders_list"),
+    path("api/work-orders/<int:pk>/", api.api_work_order_detail_view, name="api_work_order_detail"),
+    path(
+        "api/work-orders/<int:pk>/status/",
+        api.api_work_order_status_view,
+        name="api_work_order_status",
+    ),
+    path("api/work-orders/<int:pk>/labor/", api.api_add_labor_line_view, name="api_add_labor_line"),
+    path("api/work-orders/<int:pk>/parts/", api.api_add_part_line_view, name="api_add_part_line"),
 ]

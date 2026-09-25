@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -100,6 +101,7 @@ class EquipmentListViewModel(application: Application) : AndroidViewModel(applic
 @Composable
 fun EquipmentListScreen(
     onOpenEquipment: (Int) -> Unit,
+    onOpenWorkOrders: () -> Unit,
     onLoggedOut: () -> Unit,
     viewModel: EquipmentListViewModel = viewModel(),
 ) {
@@ -110,6 +112,9 @@ fun EquipmentListScreen(
             TopAppBar(
                 title = { Text("Equipment") },
                 actions = {
+                    IconButton(onClick = onOpenWorkOrders) {
+                        Icon(Icons.Default.Build, contentDescription = "Work orders")
+                    }
                     IconButton(onClick = { viewModel.load(onUnauthorized = onLoggedOut) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
