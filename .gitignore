@@ -9,3 +9,9 @@ media/
 .env
 firmware/.pio/
 firmware/.vscode/
+android/.gradle/
+android/local.properties
+android/.idea/
+android/*/build/
+android/build/
+android/.kotlin/

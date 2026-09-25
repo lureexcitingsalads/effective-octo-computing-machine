@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import api, views
 
 urlpatterns = [
     path("", views.dashboard_view, name="dashboard_view"),
@@ -23,4 +23,16 @@ urlpatterns = [
     ),
     path("reports/", views.reports_view, name="reports_view"),
     path("api/ingest/", views.ingest_view, name="ingest_view"),
+    # Android companion app
+    path("api/login/", api.api_login_view, name="api_login"),
+    path("api/me/", api.api_me_view, name="api_me"),
+    path("api/checklist/", api.api_checklist_view, name="api_checklist"),
+    path("api/equipment/", api.api_equipment_list_view, name="api_equipment_list"),
+    path("api/equipment/<int:pk>/", api.api_equipment_detail_view, name="api_equipment_detail"),
+    path(
+        "api/equipment/<int:pk>/inspections/",
+        api.api_create_inspection_view,
+        name="api_create_inspection",
+    ),
+    path("api/equipment/<int:pk>/issues/", api.api_report_issue_view, name="api_report_issue"),
 ]

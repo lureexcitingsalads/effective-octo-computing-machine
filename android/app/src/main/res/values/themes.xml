@@ -1,0 +1,4 @@
+<resources>
+    <!-- Compose owns all real theming via MaterialTheme; this is just the launch/window theme. -->
+    <style name="Theme.EquipmentTracker" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

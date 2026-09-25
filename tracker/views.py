@@ -170,14 +170,13 @@ def equipment_detail(request, pk):
         if action == "report_issue":
             description = request.POST.get("description", "").strip()
             if description:
-                issue = Issue.objects.create(
-                    equipment=equipment,
-                    reported_by=request.user.get_username(),
-                    severity=request.POST.get("severity", "medium"),
-                    description=description,
+                _create_issue(
+                    equipment,
+                    request.user.get_username(),
+                    request.POST.get("severity", "medium"),
+                    description,
+                    request.FILES.getlist("photos"),
                 )
-                for f in request.FILES.getlist("photos"):
-                    Photo.objects.create(issue=issue, image=f, uploaded_by=request.user.get_username())
 
         elif action == "create_workorder":
             title = request.POST.get("title", "").strip()
@@ -263,6 +262,43 @@ def equipment_detail(request, pk):
     return render(request, "tracker/equipment_detail.html", context)
 
 
+def _create_inspection(equipment, performed_by, responses, notes):
+    """Shared by the web checklist form and the mobile API -- same fixed checklist, same
+    auto-derived hours, same auto-escalation into an Issue when something's flagged."""
+    responses = {key: responses.get(key, "na") for key, _ in INSPECTION_CHECKLIST}
+    latest = equipment.hour_readings.order_by("-recorded_at").first()
+
+    inspection = Inspection.objects.create(
+        equipment=equipment,
+        performed_by=performed_by,
+        hours_at_inspection=latest.engine_hours if latest else None,
+        responses=responses,
+        notes=notes,
+    )
+
+    if inspection.has_issues:
+        flagged = [label for key, label in INSPECTION_CHECKLIST if responses.get(key) == "issue"]
+        critical_hit = any(responses.get(key) == "issue" for key in INSPECTION_CRITICAL_ITEMS)
+        severity = "high" if critical_hit or len(flagged) > 1 else "medium"
+        Issue.objects.create(
+            equipment=equipment,
+            reported_by=performed_by,
+            severity=severity,
+            description=f"Pre-shift inspection flagged: {', '.join(flagged)}",
+        )
+    return inspection
+
+
+def _create_issue(equipment, reported_by, severity, description, photo_files=()):
+    """Shared by the web issue-report form and the mobile API."""
+    issue = Issue.objects.create(
+        equipment=equipment, reported_by=reported_by, severity=severity, description=description,
+    )
+    for f in photo_files:
+        Photo.objects.create(issue=issue, image=f, uploaded_by=reported_by)
+    return issue
+
+
 @login_required
 def new_inspection_view(request, pk):
     equipment = get_object_or_404(Equipment, pk=pk)
@@ -270,27 +306,7 @@ def new_inspection_view(request, pk):
     if request.method == "POST":
         responses = {key: request.POST.get(f"item_{key}", "na") for key, _ in INSPECTION_CHECKLIST}
         performed_by = request.POST.get("performed_by", "").strip() or request.user.get_username()
-        latest = equipment.hour_readings.order_by("-recorded_at").first()
-
-        inspection = Inspection.objects.create(
-            equipment=equipment,
-            performed_by=performed_by,
-            hours_at_inspection=latest.engine_hours if latest else None,
-            responses=responses,
-            notes=request.POST.get("notes", "").strip(),
-        )
-
-        if inspection.has_issues:
-            flagged = [label for key, label in INSPECTION_CHECKLIST if responses.get(key) == "issue"]
-            critical_hit = any(responses.get(key) == "issue" for key in INSPECTION_CRITICAL_ITEMS)
-            severity = "high" if critical_hit or len(flagged) > 1 else "medium"
-            Issue.objects.create(
-                equipment=equipment,
-                reported_by=performed_by,
-                severity=severity,
-                description=f"Pre-shift inspection flagged: {', '.join(flagged)}",
-            )
-
+        _create_inspection(equipment, performed_by, responses, request.POST.get("notes", "").strip())
         return redirect("equipment_detail", pk=pk)
 
     context = {"equipment": equipment, "checklist": INSPECTION_CHECKLIST}
