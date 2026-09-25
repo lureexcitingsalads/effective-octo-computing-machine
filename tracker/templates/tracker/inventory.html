@@ -1,0 +1,48 @@
+{% extends "tracker/base.html" %}
+{% block title %}Inventory{% endblock %}
+{% block content %}
+<h1 style="margin-bottom:0.25rem;">Parts Inventory</h1>
+<p class="muted" style="margin-top:0;">What's on hand, and what it costs to use on a job.</p>
+
+<div class="card">
+  <table>
+    <tr><th>Part</th><th>Part #</th><th>On hand</th><th>Unit cost</th><th></th></tr>
+    {% for part in parts %}
+    <tr>
+      <td>{{ part.name }}{% if part.is_low_stock %} <span class="badge badge-fault">Low stock</span>{% endif %}</td>
+      <td class="muted">{{ part.part_number|default:"—" }}</td>
+      <td>{{ part.quantity_on_hand }}</td>
+      <td>${{ part.unit_cost|floatformat:2 }}</td>
+      <td><a class="equip-link" href="{% url 'manage_part_edit' part.pk %}">Edit</a></td>
+    </tr>
+    {% empty %}<tr><td colspan="5" class="muted">No parts in inventory yet.</td></tr>{% endfor %}
+  </table>
+  <form method="post" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create_part">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+      <div style="min-width:180px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Part name</label>
+        <input type="text" name="name" placeholder="e.g. Oil filter" required style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:140px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Part number</label>
+        <input type="text" name="part_number" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:110px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Qty on hand</label>
+        <input type="number" name="quantity_on_hand" step="1" min="0" value="0" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:110px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Unit cost ($)</label>
+        <input type="number" name="unit_cost" step="0.01" min="0" value="0" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div style="min-width:130px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Reorder point</label>
+        <input type="number" name="reorder_point" step="1" min="0" placeholder="optional" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <button type="submit" style="padding:0.55rem 1.1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Add part</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

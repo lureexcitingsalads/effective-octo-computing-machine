@@ -14,9 +14,14 @@ def generate_api_token():
 
 
 class UserProfile(models.Model):
+    """Three roles, each with a genuinely different view of the app rather than just a
+    nav-hiding cosmetic difference: Operator sees only equipment lookup + inspections,
+    Technician sees work orders + parts inventory, Admin sees everything including fleet
+    overview, reports, and account management."""
+
     ROLE_CHOICES = [
+        ("operator", "Operator"),
         ("technician", "Technician"),
-        ("supervisor", "Supervisor"),
         ("admin", "Admin"),
     ]
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
@@ -33,7 +38,9 @@ class UserProfile(models.Model):
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
-        role = "admin" if instance.is_superuser else "technician"
+        # Least privilege by default -- manage_users_view lets an admin pick the real role
+        # at creation time; this default only matters for accounts created outside that flow.
+        role = "admin" if instance.is_superuser else "operator"
         UserProfile.objects.get_or_create(user=instance, defaults={"role": role})
 
 

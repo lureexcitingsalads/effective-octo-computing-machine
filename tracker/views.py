@@ -43,6 +43,15 @@ def role_required(*roles):
     return decorator
 
 
+def user_role(user):
+    """Effective role for template/view branching -- a superuser always reads as 'admin'
+    regardless of their actual UserProfile.role, matching role_required's own bypass."""
+    if user.is_superuser:
+        return "admin"
+    profile = getattr(user, "profile", None)
+    return profile.role if profile else "operator"
+
+
 @login_required
 def equipment_list(request):
     equipment = Equipment.objects.select_related("customer").annotate(
@@ -167,6 +176,9 @@ def equipment_detail(request, pk):
     if request.method == "POST":
         action = request.POST.get("action")
 
+        if action in ("report_issue", "create_workorder") and user_role(request.user) == "operator":
+            return HttpResponseForbidden("Operators can only submit inspections. Ask an admin if that's wrong.")
+
         if action == "report_issue":
             description = request.POST.get("description", "").strip()
             if description:
@@ -258,6 +270,7 @@ def equipment_detail(request, pk):
         "open_fault_count": fault_events.filter(cleared_at__isnull=True).count(),
         "open_issue_count": equipment.issues.filter(resolved_at__isnull=True).count(),
         "utilization_pct": _compute_utilization_pct(equipment, timezone.now()),
+        "is_operator": user_role(request.user) == "operator",
     }
     return render(request, "tracker/equipment_detail.html", context)
 
@@ -363,11 +376,12 @@ def new_inspection_view(request, pk):
     return render(request, "tracker/new_inspection.html", context)
 
 
-@role_required("admin", "supervisor")
+@role_required("admin")
 def manage_view(request):
     """Fleet administration: add/edit machines and sites. Deliberately no delete here --
     equipment and sites have too much history hanging off them (readings, faults, work
-    orders) to make that a one-click action; use Django admin for that if it's ever needed."""
+    orders) to make that a one-click action; use Django admin for that if it's ever needed.
+    Admin-only -- Technicians get their own, narrower inventory_view instead."""
     if request.method == "POST":
         action = request.POST.get("action")
 
@@ -392,30 +406,37 @@ def manage_view(request):
                 site, _ = Site.objects.get_or_create(name=name, customer_id=customer_id)
                 return redirect("manage_site_edit", pk=site.pk)
 
-        elif action == "create_part":
-            name = request.POST.get("name", "").strip()
-            if name:
-                part = Part.objects.create(
-                    name=name,
-                    part_number=request.POST.get("part_number", "").strip(),
-                    quantity_on_hand=request.POST.get("quantity_on_hand") or 0,
-                    unit_cost=request.POST.get("unit_cost") or 0,
-                    reorder_point=request.POST.get("reorder_point") or None,
-                )
-                return redirect("manage_part_edit", pk=part.pk)
-
         return redirect("manage_view")
 
     context = {
         "equipment_list": Equipment.objects.select_related("customer", "site"),
         "sites": Site.objects.select_related("customer").annotate(equipment_count=Count("equipment")),
-        "parts": Part.objects.all(),
         "customers": Customer.objects.all(),
     }
     return render(request, "tracker/manage.html", context)
 
 
-@role_required("admin", "supervisor")
+@role_required("admin", "technician")
+def inventory_view(request):
+    """Parts inventory -- split out from manage_view so Technicians (who need this to log
+    parts used on work orders) can reach it without also getting Equipment/Sites admin."""
+    if request.method == "POST" and request.POST.get("action") == "create_part":
+        name = request.POST.get("name", "").strip()
+        if name:
+            part = Part.objects.create(
+                name=name,
+                part_number=request.POST.get("part_number", "").strip(),
+                quantity_on_hand=request.POST.get("quantity_on_hand") or 0,
+                unit_cost=request.POST.get("unit_cost") or 0,
+                reorder_point=request.POST.get("reorder_point") or None,
+            )
+            return redirect("manage_part_edit", pk=part.pk)
+        return redirect("inventory_view")
+
+    return render(request, "tracker/inventory.html", {"parts": Part.objects.all()})
+
+
+@role_required("admin")
 def manage_equipment_edit_view(request, pk):
     equipment = get_object_or_404(Equipment, pk=pk)
 
@@ -437,7 +458,7 @@ def manage_equipment_edit_view(request, pk):
     return render(request, "tracker/manage_equipment_edit.html", context)
 
 
-@role_required("admin", "supervisor")
+@role_required("admin")
 def manage_site_edit_view(request, pk):
     site = get_object_or_404(Site, pk=pk)
 
@@ -455,7 +476,7 @@ def manage_site_edit_view(request, pk):
     return render(request, "tracker/manage_site_edit.html", context)
 
 
-@role_required("admin", "supervisor")
+@role_required("admin", "technician")
 def manage_part_edit_view(request, pk):
     part = get_object_or_404(Part, pk=pk)
 
@@ -466,14 +487,14 @@ def manage_part_edit_view(request, pk):
         part.unit_cost = request.POST.get("unit_cost") or 0
         part.reorder_point = request.POST.get("reorder_point") or None
         part.save()
-        return redirect("manage_view")
+        return redirect("inventory_view")
 
     return render(request, "tracker/manage_part_edit.html", {"part": part})
 
 
 @role_required("admin")
 def manage_users_view(request):
-    """Account creation and role assignment. Admin-only -- a supervisor shouldn't be able to
+    """Account creation and role assignment. Admin-only -- nobody else should be able to
     grant themselves or anyone else admin access."""
     if request.method == "POST":
         action = request.POST.get("action")
@@ -510,7 +531,7 @@ def manage_users_view(request):
     return render(request, "tracker/manage_users.html", context)
 
 
-@login_required
+@role_required("admin", "technician")
 def schedule_view(request):
     today = timezone.now().date()
     year = int(request.GET.get("year", today.year))
@@ -559,7 +580,7 @@ def schedule_view(request):
     return render(request, "tracker/schedule.html", context)
 
 
-@login_required
+@role_required("admin")
 def fleet_map_view(request):
     range_key = request.GET.get("range", "all")
     now = timezone.now()
@@ -600,7 +621,7 @@ def _equipment_type(label):
     return match.group(1) if match else label
 
 
-@login_required
+@role_required("admin")
 def fleet_tree_view(request):
     equipment_qs = Equipment.objects.select_related("customer", "site").annotate(
         open_fault_count=Count("fault_events", filter=Q(fault_events__cleared_at__isnull=True), distinct=True),
@@ -684,7 +705,7 @@ def fleet_tree_view(request):
     return render(request, "tracker/fleet_tree.html", context)
 
 
-@login_required
+@role_required("admin")
 @require_POST
 def reassign_equipment_view(request, pk):
     equipment = get_object_or_404(Equipment, pk=pk)
@@ -753,6 +774,15 @@ def _compute_uptime_rows(all_equipment, now=None):
 
 @login_required
 def dashboard_view(request):
+    """The post-login landing page for every role, but not the same page for every role --
+    this is the fleet-wide KPI view, which is really an Admin concern. Technicians and
+    Operators land on whichever page actually starts their own workflow instead."""
+    role = user_role(request.user)
+    if role == "technician":
+        return redirect("work_orders_view")
+    if role == "operator":
+        return redirect("equipment_list")
+
     now = timezone.now()
     all_equipment = list(
         Equipment.objects.select_related("customer").annotate(
@@ -843,9 +873,9 @@ def dashboard_view(request):
     return render(request, "tracker/dashboard.html", context)
 
 
-@login_required
+@role_required("admin", "technician")
 def work_orders_view(request):
-    """Fleet-wide work order triage -- the supervisor view. Defaults to open/in-progress only."""
+    """Fleet-wide work order triage. Defaults to open/in-progress only."""
     show_all = request.GET.get("show") == "all"
     work_orders = WorkOrder.objects.select_related("equipment", "equipment__customer").prefetch_related(
         "labor_lines", "part_lines"
@@ -895,7 +925,7 @@ def _add_part_line(work_order, part_id=None, part_name="", quantity=1, unit_cost
     )
 
 
-@login_required
+@role_required("admin", "technician")
 def work_order_detail_view(request, pk):
     """The technician view -- one job, its itemized labor/parts, and status control."""
     wo = get_object_or_404(WorkOrder.objects.select_related("equipment", "equipment__customer"), pk=pk)
@@ -970,7 +1000,7 @@ def work_order_detail_view(request, pk):
     return render(request, "tracker/work_order_detail.html", {"wo": wo, "parts": Part.objects.all()})
 
 
-@role_required("admin", "supervisor")
+@role_required("admin")
 def reports_view(request):
     all_equipment = Equipment.objects.select_related("customer").all()
     now = timezone.now()

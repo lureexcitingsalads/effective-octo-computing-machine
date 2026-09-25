@@ -47,6 +47,7 @@ import com.equipmenttracker.app.data.ApiClientFactory
 import com.equipmenttracker.app.data.EquipmentSummaryDto
 import com.equipmenttracker.app.data.TokenStore
 import com.equipmenttracker.app.ui.theme.statusColor
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
@@ -59,6 +60,8 @@ class EquipmentListViewModel(application: Application) : AndroidViewModel(applic
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
+    var role by mutableStateOf<String?>(null)
+        private set
 
     fun load(onUnauthorized: () -> Unit) {
         isLoading = true
@@ -70,6 +73,7 @@ class EquipmentListViewModel(application: Application) : AndroidViewModel(applic
                 onUnauthorized()
                 return@launch
             }
+            role = tokenStore.role.first()
             try {
                 val api = ApiClientFactory.create(tokenStore.currentServerUrl())
                 val response = api.listEquipment("Bearer $token")
@@ -112,8 +116,10 @@ fun EquipmentListScreen(
             TopAppBar(
                 title = { Text("Equipment") },
                 actions = {
-                    IconButton(onClick = onOpenWorkOrders) {
-                        Icon(Icons.Default.Build, contentDescription = "Work orders")
+                    if (viewModel.role == "admin" || viewModel.role == "technician") {
+                        IconButton(onClick = onOpenWorkOrders) {
+                            Icon(Icons.Default.Build, contentDescription = "Work orders")
+                        }
                     }
                     IconButton(onClick = { viewModel.load(onUnauthorized = onLoggedOut) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")

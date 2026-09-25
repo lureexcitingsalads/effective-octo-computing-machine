@@ -46,6 +46,7 @@ import com.equipmenttracker.app.data.ApiClientFactory
 import com.equipmenttracker.app.data.EquipmentDetailDto
 import com.equipmenttracker.app.data.TokenStore
 import com.equipmenttracker.app.ui.theme.statusColor
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class EquipmentDetailViewModel(application: Application) : AndroidViewModel(application) {
@@ -57,6 +58,8 @@ class EquipmentDetailViewModel(application: Application) : AndroidViewModel(appl
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
+    var isOperator by mutableStateOf(false)
+        private set
 
     fun load(equipmentId: Int) {
         isLoading = true
@@ -64,6 +67,7 @@ class EquipmentDetailViewModel(application: Application) : AndroidViewModel(appl
         viewModelScope.launch {
             try {
                 val token = tokenStore.currentToken() ?: return@launch
+                isOperator = tokenStore.role.first() == "operator"
                 val api = ApiClientFactory.create(tokenStore.currentServerUrl())
                 detail = api.getEquipment("Bearer $token", equipmentId)
                 isLoading = false
@@ -107,7 +111,7 @@ fun EquipmentDetailScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     color = MaterialTheme.colorScheme.error,
                 )
-                detail != null -> EquipmentDetailContent(detail, onNewInspection, onReportIssue)
+                detail != null -> EquipmentDetailContent(detail, viewModel.isOperator, onNewInspection, onReportIssue)
             }
         }
     }
@@ -116,6 +120,7 @@ fun EquipmentDetailScreen(
 @Composable
 private fun EquipmentDetailContent(
     detail: EquipmentDetailDto,
+    isOperator: Boolean,
     onNewInspection: () -> Unit,
     onReportIssue: () -> Unit,
 ) {
@@ -165,7 +170,9 @@ private fun EquipmentDetailContent(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(onClick = onNewInspection, modifier = Modifier.weight(1f)) { Text("New inspection") }
-                OutlinedButton(onClick = onReportIssue, modifier = Modifier.weight(1f)) { Text("Report issue") }
+                if (!isOperator) {
+                    OutlinedButton(onClick = onReportIssue, modifier = Modifier.weight(1f)) { Text("Report issue") }
+                }
             }
         }
 

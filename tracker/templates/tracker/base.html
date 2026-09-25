@@ -82,16 +82,19 @@
 <header>
   <nav class="top-nav">
     <a class="brand" href="{% url 'dashboard_view' %}">Equipment Tracker</a>
+    {% if request.user.is_superuser or request.user.profile.role == "admin" %}
     <a class="nav-link{% if request.resolver_match.url_name == 'dashboard_view' %} active{% endif %}" href="{% url 'dashboard_view' %}">Dashboard</a>
     <a class="nav-link{% if request.resolver_match.url_name == 'fleet_map_view' %} active{% endif %}" href="{% url 'fleet_map_view' %}">Fleet Map</a>
     <a class="nav-link{% if request.resolver_match.url_name == 'fleet_tree_view' %} active{% endif %}" href="{% url 'fleet_tree_view' %}">Fleet Tree</a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'equipment_list' or request.resolver_match.url_name == 'equipment_detail' %} active{% endif %}" href="{% url 'equipment_list' %}">Equipment</a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'work_orders_view' or request.resolver_match.url_name == 'work_order_detail' %} active{% endif %}" href="{% url 'work_orders_view' %}">Work Orders</a>
-    {% if request.user.is_superuser or request.user.profile.role != "technician" %}
-    <a class="nav-link{% if request.resolver_match.url_name == 'manage_view' or request.resolver_match.url_name == 'manage_equipment_edit' or request.resolver_match.url_name == 'manage_site_edit' or request.resolver_match.url_name == 'manage_users_view' %} active{% endif %}" href="{% url 'manage_view' %}">Manage</a>
     {% endif %}
+    <a class="nav-link{% if request.resolver_match.url_name == 'equipment_list' or request.resolver_match.url_name == 'equipment_detail' %} active{% endif %}" href="{% url 'equipment_list' %}">Equipment</a>
+    {% if request.user.is_superuser or request.user.profile.role == "admin" or request.user.profile.role == "technician" %}
+    <a class="nav-link{% if request.resolver_match.url_name == 'work_orders_view' or request.resolver_match.url_name == 'work_order_detail' %} active{% endif %}" href="{% url 'work_orders_view' %}">Work Orders</a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'inventory_view' or request.resolver_match.url_name == 'manage_part_edit' %} active{% endif %}" href="{% url 'inventory_view' %}">Inventory</a>
     <a class="nav-link{% if request.resolver_match.url_name == 'schedule_view' %} active{% endif %}" href="{% url 'schedule_view' %}">Schedule</a>
-    {% if request.user.is_superuser or request.user.profile.role != "technician" %}
+    {% endif %}
+    {% if request.user.is_superuser or request.user.profile.role == "admin" %}
+    <a class="nav-link{% if request.resolver_match.url_name == 'manage_view' or request.resolver_match.url_name == 'manage_equipment_edit' or request.resolver_match.url_name == 'manage_site_edit' or request.resolver_match.url_name == 'manage_users_view' %} active{% endif %}" href="{% url 'manage_view' %}">Manage</a>
     <a class="nav-link{% if request.resolver_match.url_name == 'reports_view' %} active{% endif %}" href="{% url 'reports_view' %}">Reports</a>
     {% endif %}
     {% if user.is_authenticated %}

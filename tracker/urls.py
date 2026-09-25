@@ -17,6 +17,7 @@ urlpatterns = [
     path("manage/sites/<int:pk>/", views.manage_site_edit_view, name="manage_site_edit"),
     path("manage/parts/<int:pk>/", views.manage_part_edit_view, name="manage_part_edit"),
     path("manage/users/", views.manage_users_view, name="manage_users_view"),
+    path("inventory/", views.inventory_view, name="inventory_view"),
     path(
         "api/equipment/<int:pk>/reassign/",
         views.reassign_equipment_view,

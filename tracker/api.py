@@ -50,6 +50,19 @@ def token_required(view_func):
     return wrapped
 
 
+def role_required(*roles):
+    """Same gate as views.role_required, but for JSON endpoints -- 403 JSON instead of an
+    HTML error page. Must sit below @token_required so request.profile is already set."""
+    def decorator(view_func):
+        @functools.wraps(view_func)
+        def wrapped(request, *args, **kwargs):
+            if request.profile.role not in roles:
+                return JsonResponse({"error": "not permitted for this role"}, status=403)
+            return view_func(request, *args, **kwargs)
+        return wrapped
+    return decorator
+
+
 def _parse_json_body(request):
     if not request.body:
         return {}
@@ -206,6 +219,8 @@ def api_create_inspection_view(request, pk):
 @token_required
 @require_POST
 def api_report_issue_view(request, pk):
+    if request.profile.role == "operator":
+        return JsonResponse({"error": "operators can only submit inspections"}, status=403)
     equipment = get_object_or_404(Equipment, pk=pk)
     description = request.POST.get("description", "").strip()
     if not description:
@@ -236,6 +251,7 @@ def _work_order_summary_json(wo):
 
 
 @token_required
+@role_required("admin", "technician")
 @require_GET
 def api_work_orders_list_view(request):
     show_all = request.GET.get("show") == "all"
@@ -248,6 +264,7 @@ def api_work_orders_list_view(request):
 
 
 @token_required
+@role_required("admin", "technician")
 @require_GET
 def api_work_order_detail_view(request, pk):
     wo = get_object_or_404(
@@ -295,6 +312,7 @@ def api_work_order_detail_view(request, pk):
 
 @csrf_exempt
 @token_required
+@role_required("admin", "technician")
 @require_POST
 def api_add_work_order_comment_view(request, pk):
     wo = get_object_or_404(WorkOrder, pk=pk)
@@ -316,6 +334,7 @@ def api_add_work_order_comment_view(request, pk):
 
 @csrf_exempt
 @token_required
+@role_required("admin", "technician")
 @require_POST
 def api_work_order_status_view(request, pk):
     wo = get_object_or_404(WorkOrder, pk=pk)
@@ -338,6 +357,7 @@ def api_work_order_status_view(request, pk):
 
 @csrf_exempt
 @token_required
+@role_required("admin", "technician")
 @require_POST
 def api_add_labor_line_view(request, pk):
     wo = get_object_or_404(WorkOrder, pk=pk)
@@ -362,6 +382,7 @@ def api_add_labor_line_view(request, pk):
 
 @csrf_exempt
 @token_required
+@role_required("admin", "technician")
 @require_POST
 def api_add_part_line_view(request, pk):
     wo = get_object_or_404(WorkOrder, pk=pk)
@@ -387,6 +408,7 @@ def api_add_part_line_view(request, pk):
 
 
 @token_required
+@role_required("admin", "technician")
 @require_GET
 def api_parts_list_view(request):
     parts = Part.objects.all()

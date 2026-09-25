@@ -97,6 +97,7 @@
     </tr>
     {% empty %}<tr><td colspan="6" class="muted">No issues reported.</td></tr>{% endfor %}
   </table>
+  {% if not is_operator %}
   <form method="post" enctype="multipart/form-data" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
     {% csrf_token %}
     <input type="hidden" name="action" value="report_issue">
@@ -121,8 +122,10 @@
     </div>
     <p class="muted" style="margin-top:0.4rem; margin-bottom:0; font-size:0.75rem;">Reported as {{ user.username }}</p>
   </form>
+  {% endif %}
 </div>
 
+{% if not is_operator %}
 <div class="card">
   <h2>Work Orders</h2>
   <table>
@@ -165,6 +168,7 @@
   </form>
   <p class="muted" style="margin-top:0.75rem; margin-bottom:0">Completing a work order automatically logs it to Maintenance History with its cost, so the forecast below updates on its own.</p>
 </div>
+{% endif %}
 
 <div class="card">
   <h2>Maintenance Forecast</h2>
