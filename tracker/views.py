@@ -52,9 +52,28 @@ def user_role(user):
     return profile.role if profile else "operator"
 
 
+def user_customer_scope(user):
+    """None means this account oversees every customer's fleet (the consulting business's
+    own staff, including superusers -- same bypass convention as user_role). A Customer
+    instance means this is a client-portal account restricted to just that company's
+    equipment. This is orthogonal to role: role controls what actions are available,
+    this controls which equipment those actions can touch."""
+    if user.is_superuser:
+        return None
+    profile = getattr(user, "profile", None)
+    return profile.customer if profile else None
+
+
+def scoped_equipment_qs(user):
+    """Equipment queryset scoped to user_customer_scope(user), or everything if unscoped."""
+    scope = user_customer_scope(user)
+    qs = Equipment.objects.all()
+    return qs.filter(customer=scope) if scope else qs
+
+
 @login_required
 def equipment_list(request):
-    equipment = Equipment.objects.select_related("customer").annotate(
+    equipment = scoped_equipment_qs(request.user).select_related("customer").annotate(
         open_fault_count=Count(
             "fault_events", filter=Q(fault_events__cleared_at__isnull=True), distinct=True
         ),
@@ -171,7 +190,7 @@ def _compute_lifecycle_signals(equipment):
 
 @login_required
 def equipment_detail(request, pk):
-    equipment = get_object_or_404(Equipment, pk=pk)
+    equipment = get_object_or_404(scoped_equipment_qs(request.user), pk=pk)
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -345,7 +364,7 @@ def _create_issue(equipment, reported_by, severity, description, photo_files=())
 
 @login_required
 def new_inspection_view(request, pk):
-    equipment = get_object_or_404(Equipment, pk=pk)
+    equipment = get_object_or_404(scoped_equipment_qs(request.user), pk=pk)
 
     if request.method == "POST":
         responses = {key: request.POST.get(f"item_{key}", "na") for key, _ in INSPECTION_CHECKLIST}
@@ -382,12 +401,14 @@ def manage_view(request):
     equipment and sites have too much history hanging off them (readings, faults, work
     orders) to make that a one-click action; use Django admin for that if it's ever needed.
     Admin-only -- Technicians get their own, narrower inventory_view instead."""
+    scope = user_customer_scope(request.user)
+
     if request.method == "POST":
         action = request.POST.get("action")
 
         if action == "create_equipment":
             label = request.POST.get("label", "").strip()
-            customer_id = request.POST.get("customer_id")
+            customer_id = str(scope.pk) if scope else request.POST.get("customer_id")
             if label and customer_id:
                 equipment = Equipment.objects.create(
                     label=label,
@@ -401,7 +422,7 @@ def manage_view(request):
 
         elif action == "create_site":
             name = request.POST.get("name", "").strip()
-            customer_id = request.POST.get("customer_id")
+            customer_id = str(scope.pk) if scope else request.POST.get("customer_id")
             if name and customer_id:
                 site, _ = Site.objects.get_or_create(name=name, customer_id=customer_id)
                 return redirect("manage_site_edit", pk=site.pk)
@@ -409,9 +430,10 @@ def manage_view(request):
         return redirect("manage_view")
 
     context = {
-        "equipment_list": Equipment.objects.select_related("customer", "site"),
-        "sites": Site.objects.select_related("customer").annotate(equipment_count=Count("equipment")),
-        "customers": Customer.objects.all(),
+        "equipment_list": scoped_equipment_qs(request.user).select_related("customer", "site"),
+        "sites": (Site.objects.filter(customer=scope) if scope else Site.objects.all())
+        .select_related("customer").annotate(equipment_count=Count("equipment")),
+        "customers": Customer.objects.filter(pk=scope.pk) if scope else Customer.objects.all(),
     }
     return render(request, "tracker/manage.html", context)
 
@@ -419,7 +441,12 @@ def manage_view(request):
 @role_required("admin", "technician")
 def inventory_view(request):
     """Parts inventory -- split out from manage_view so Technicians (who need this to log
-    parts used on work orders) can reach it without also getting Equipment/Sites admin."""
+    parts used on work orders) can reach it without also getting Equipment/Sites admin.
+    The consulting business's own stock, not per-customer -- client-portal accounts don't
+    get this regardless of their role."""
+    if user_customer_scope(request.user) is not None:
+        return HttpResponseForbidden("Inventory is internal-only.")
+
     if request.method == "POST" and request.POST.get("action") == "create_part":
         name = request.POST.get("name", "").strip()
         if name:
@@ -438,11 +465,13 @@ def inventory_view(request):
 
 @role_required("admin")
 def manage_equipment_edit_view(request, pk):
-    equipment = get_object_or_404(Equipment, pk=pk)
+    equipment = get_object_or_404(scoped_equipment_qs(request.user), pk=pk)
+    scope = user_customer_scope(request.user)
 
     if request.method == "POST":
         equipment.label = request.POST.get("label", "").strip()
-        equipment.customer_id = request.POST.get("customer_id") or equipment.customer_id
+        if not scope:
+            equipment.customer_id = request.POST.get("customer_id") or equipment.customer_id
         equipment.site_id = request.POST.get("site_id") or None
         equipment.make = request.POST.get("make", "").strip()
         equipment.model = request.POST.get("model", "").strip()
@@ -452,25 +481,28 @@ def manage_equipment_edit_view(request, pk):
 
     context = {
         "equipment": equipment,
-        "customers": Customer.objects.all(),
-        "sites": Site.objects.select_related("customer"),
+        "customers": Customer.objects.filter(pk=scope.pk) if scope else Customer.objects.all(),
+        "sites": (Site.objects.filter(customer=scope) if scope else Site.objects.all()).select_related("customer"),
     }
     return render(request, "tracker/manage_equipment_edit.html", context)
 
 
 @role_required("admin")
 def manage_site_edit_view(request, pk):
-    site = get_object_or_404(Site, pk=pk)
+    scope = user_customer_scope(request.user)
+    site_qs = Site.objects.filter(customer=scope) if scope else Site.objects.all()
+    site = get_object_or_404(site_qs, pk=pk)
 
     if request.method == "POST":
         site.name = request.POST.get("name", "").strip()
-        site.customer_id = request.POST.get("customer_id") or site.customer_id
+        if not scope:
+            site.customer_id = request.POST.get("customer_id") or site.customer_id
         site.save()
         return redirect("manage_view")
 
     context = {
         "site": site,
-        "customers": Customer.objects.all(),
+        "customers": Customer.objects.filter(pk=scope.pk) if scope else Customer.objects.all(),
         "equipment_at_site": site.equipment.all(),
     }
     return render(request, "tracker/manage_site_edit.html", context)
@@ -478,6 +510,8 @@ def manage_site_edit_view(request, pk):
 
 @role_required("admin", "technician")
 def manage_part_edit_view(request, pk):
+    if user_customer_scope(request.user) is not None:
+        return HttpResponseForbidden("Inventory is internal-only.")
     part = get_object_or_404(Part, pk=pk)
 
     if request.method == "POST":
@@ -494,8 +528,15 @@ def manage_part_edit_view(request, pk):
 
 @role_required("admin")
 def manage_users_view(request):
-    """Account creation and role assignment. Admin-only -- nobody else should be able to
-    grant themselves or anyone else admin access."""
+    """Account creation, role assignment, and customer-portal scoping. Restricted to
+    unscoped ("master") admins specifically -- role_required alone would let a client-portal
+    admin (role=admin, but customer set) reach this page too, which would let a client
+    grant themselves or anyone else full cross-customer access. That's a real privilege
+    escalation, not just a UX nicety, so it's checked explicitly rather than left to nav
+    hiding."""
+    if user_customer_scope(request.user) is not None:
+        return HttpResponseForbidden("Only the master admin account can manage users.")
+
     if request.method == "POST":
         action = request.POST.get("action")
 
@@ -503,10 +544,12 @@ def manage_users_view(request):
             username = request.POST.get("username", "").strip()
             password = request.POST.get("password", "").strip()
             role = request.POST.get("role", "technician")
+            customer_id = request.POST.get("customer_id") or None
             if username and password and role in dict(UserProfile.ROLE_CHOICES):
                 if not User.objects.filter(username=username).exists():
                     user = User.objects.create_user(username=username, password=password)
                     user.profile.role = role
+                    user.profile.customer_id = customer_id
                     user.profile.save()
 
         elif action == "update_role":
@@ -515,6 +558,11 @@ def manage_users_view(request):
             if role in dict(UserProfile.ROLE_CHOICES):
                 target.profile.role = role
                 target.profile.save()
+
+        elif action == "update_customer":
+            target = get_object_or_404(User, pk=request.POST.get("user_id"))
+            target.profile.customer_id = request.POST.get("customer_id") or None
+            target.profile.save()
 
         elif action == "toggle_active":
             target = get_object_or_404(User, pk=request.POST.get("user_id"))
@@ -525,8 +573,9 @@ def manage_users_view(request):
         return redirect("manage_users_view")
 
     context = {
-        "users": User.objects.select_related("profile").order_by("username"),
+        "users": User.objects.select_related("profile", "profile__customer").order_by("username"),
         "roles": UserProfile.ROLE_CHOICES,
+        "customers": Customer.objects.all(),
     }
     return render(request, "tracker/manage_users.html", context)
 
@@ -539,7 +588,7 @@ def schedule_view(request):
 
     overdue = []
     by_date = defaultdict(list)
-    for equipment in Equipment.objects.select_related("customer"):
+    for equipment in scoped_equipment_qs(request.user).select_related("customer"):
         for f in _compute_maintenance_forecast(equipment):
             if f["status"] == "unknown":
                 continue
@@ -588,7 +637,7 @@ def fleet_map_view(request):
     cutoff = cutoffs.get(range_key)
 
     machines = []
-    for equipment in Equipment.objects.select_related("customer"):
+    for equipment in scoped_equipment_qs(request.user).select_related("customer"):
         pings = equipment.telemetry_pings.order_by("recorded_at")
         if cutoff:
             pings = pings.filter(recorded_at__gte=cutoff)
@@ -623,7 +672,7 @@ def _equipment_type(label):
 
 @role_required("admin")
 def fleet_tree_view(request):
-    equipment_qs = Equipment.objects.select_related("customer", "site").annotate(
+    equipment_qs = scoped_equipment_qs(request.user).select_related("customer", "site").annotate(
         open_fault_count=Count("fault_events", filter=Q(fault_events__cleared_at__isnull=True), distinct=True),
         open_issue_count=Count("issues", filter=Q(issues__resolved_at__isnull=True), distinct=True),
     )
@@ -697,10 +746,11 @@ def fleet_tree_view(request):
         **rollup(all_units),
     }
 
+    scope = user_customer_scope(request.user)
     context = {
         "fleet_tree": fleet_tree,
-        "customers": Customer.objects.all(),
-        "sites": Site.objects.select_related("customer"),
+        "customers": Customer.objects.filter(pk=scope.pk) if scope else Customer.objects.all(),
+        "sites": (Site.objects.filter(customer=scope) if scope else Site.objects.all()).select_related("customer"),
     }
     return render(request, "tracker/fleet_tree.html", context)
 
@@ -708,12 +758,15 @@ def fleet_tree_view(request):
 @role_required("admin")
 @require_POST
 def reassign_equipment_view(request, pk):
-    equipment = get_object_or_404(Equipment, pk=pk)
+    equipment = get_object_or_404(scoped_equipment_qs(request.user), pk=pk)
     customer_id = request.POST.get("customer_id", "").strip()
     site_name = request.POST.get("site_name", "").strip()
 
     if not customer_id:
         return JsonResponse({"error": "customer_id is required"}, status=400)
+    scope = user_customer_scope(request.user)
+    if scope and str(scope.pk) != customer_id:
+        return HttpResponseForbidden("A client-portal account can't move equipment to another customer.")
     customer = Customer.objects.filter(pk=customer_id).first()
     if not customer:
         return JsonResponse({"error": "Unknown customer"}, status=400)
@@ -785,7 +838,7 @@ def dashboard_view(request):
 
     now = timezone.now()
     all_equipment = list(
-        Equipment.objects.select_related("customer").annotate(
+        scoped_equipment_qs(request.user).select_related("customer").annotate(
             open_fault_count=Count(
                 "fault_events", filter=Q(fault_events__cleared_at__isnull=True), distinct=True
             ),
@@ -839,13 +892,15 @@ def dashboard_view(request):
     attention_items.sort(key=lambda i: -i["severity"])
 
     equipment_down_count = (
-        WorkOrder.objects.filter(equipment_down=True)
+        WorkOrder.objects.filter(equipment__in=all_equipment, equipment_down=True)
         .exclude(status__in=["completed", "cancelled"])
         .values("equipment_id")
         .distinct()
         .count()
     )
-    open_work_order_count = WorkOrder.objects.exclude(status__in=["completed", "cancelled"]).count()
+    open_work_order_count = WorkOrder.objects.filter(equipment__in=all_equipment).exclude(
+        status__in=["completed", "cancelled"]
+    ).count()
 
     uptime_rows = _compute_uptime_rows(all_equipment, now)
     fleet_uptime_pct = (
@@ -875,11 +930,12 @@ def dashboard_view(request):
 
 @role_required("admin", "technician")
 def work_orders_view(request):
-    """Fleet-wide work order triage. Defaults to open/in-progress only."""
+    """Fleet-wide work order triage (fleet-wide within the user's customer scope).
+    Defaults to open/in-progress only."""
     show_all = request.GET.get("show") == "all"
-    work_orders = WorkOrder.objects.select_related("equipment", "equipment__customer").prefetch_related(
-        "labor_lines", "part_lines"
-    )
+    work_orders = WorkOrder.objects.filter(equipment__in=scoped_equipment_qs(request.user)).select_related(
+        "equipment", "equipment__customer"
+    ).prefetch_related("labor_lines", "part_lines")
     if not show_all:
         work_orders = work_orders.exclude(status__in=["completed", "cancelled"])
 
@@ -928,7 +984,12 @@ def _add_part_line(work_order, part_id=None, part_name="", quantity=1, unit_cost
 @role_required("admin", "technician")
 def work_order_detail_view(request, pk):
     """The technician view -- one job, its itemized labor/parts, and status control."""
-    wo = get_object_or_404(WorkOrder.objects.select_related("equipment", "equipment__customer"), pk=pk)
+    wo = get_object_or_404(
+        WorkOrder.objects.filter(equipment__in=scoped_equipment_qs(request.user)).select_related(
+            "equipment", "equipment__customer"
+        ),
+        pk=pk,
+    )
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -1002,7 +1063,7 @@ def work_order_detail_view(request, pk):
 
 @role_required("admin")
 def reports_view(request):
-    all_equipment = Equipment.objects.select_related("customer").all()
+    all_equipment = scoped_equipment_qs(request.user).select_related("customer")
     now = timezone.now()
 
     cost_by_equipment = []
@@ -1015,9 +1076,9 @@ def reports_view(request):
         cost_by_customer[equipment.customer.name] += eq_cost
         total_cost += eq_cost
 
-    completed_orders = WorkOrder.objects.filter(status="completed").prefetch_related(
-        "labor_lines", "part_lines"
-    )
+    completed_orders = WorkOrder.objects.filter(
+        status="completed", equipment__in=all_equipment
+    ).prefetch_related("labor_lines", "part_lines")
     total_labor_cost = float(sum((wo.labor_total for wo in completed_orders), Decimal("0")))
     total_parts_cost = float(sum((wo.parts_total for wo in completed_orders), Decimal("0")))
 

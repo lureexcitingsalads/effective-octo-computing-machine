@@ -27,6 +27,8 @@ from .views import (
     _compute_utilization_pct,
     _create_inspection,
     _create_issue,
+    scoped_equipment_qs,
+    user_customer_scope,
 )
 
 STATUS_RANK = {"ok": 0, "unknown": 1, "due_soon": 2, "overdue": 3}
@@ -71,11 +73,13 @@ def _parse_json_body(request):
 
 def _user_json(user, profile=None):
     profile = profile or getattr(user, "profile", None)
+    scope = user_customer_scope(user)
     return {
         "id": user.id,
         "username": user.username,
         "display_name": user.get_full_name() or user.username,
         "role": profile.role if profile else "technician",
+        "customer": scope.name if scope else None,
     }
 
 
@@ -135,14 +139,16 @@ def api_checklist_view(request):
 @token_required
 @require_GET
 def api_equipment_list_view(request):
-    equipment_qs = Equipment.objects.select_related("customer", "site").order_by("label")
+    equipment_qs = scoped_equipment_qs(request.user).select_related("customer", "site").order_by("label")
     return JsonResponse({"equipment": [_equipment_summary_json(e) for e in equipment_qs]})
 
 
 @token_required
 @require_GET
 def api_equipment_detail_view(request, pk):
-    equipment = get_object_or_404(Equipment.objects.select_related("customer", "site"), pk=pk)
+    equipment = get_object_or_404(
+        scoped_equipment_qs(request.user).select_related("customer", "site"), pk=pk
+    )
     forecasts = _compute_maintenance_forecast(equipment)
     has_active_fault = equipment.fault_events.filter(cleared_at__isnull=True).exists()
     is_down = equipment.work_orders.filter(equipment_down=True).exclude(
@@ -188,7 +194,7 @@ def api_create_inspection_view(request, pk):
     4-side walkaround. `responses`/`comments` travel as JSON-encoded text fields within the
     multipart body -- there's no clean way to nest structured data any other way alongside
     files in a single request."""
-    equipment = get_object_or_404(Equipment, pk=pk)
+    equipment = get_object_or_404(scoped_equipment_qs(request.user), pk=pk)
     try:
         responses = json.loads(request.POST.get("responses") or "{}")
         comments = json.loads(request.POST.get("comments") or "{}")
@@ -221,7 +227,7 @@ def api_create_inspection_view(request, pk):
 def api_report_issue_view(request, pk):
     if request.profile.role == "operator":
         return JsonResponse({"error": "operators can only submit inspections"}, status=403)
-    equipment = get_object_or_404(Equipment, pk=pk)
+    equipment = get_object_or_404(scoped_equipment_qs(request.user), pk=pk)
     description = request.POST.get("description", "").strip()
     if not description:
         return JsonResponse({"error": "description is required"}, status=400)
@@ -255,9 +261,9 @@ def _work_order_summary_json(wo):
 @require_GET
 def api_work_orders_list_view(request):
     show_all = request.GET.get("show") == "all"
-    work_orders = WorkOrder.objects.select_related("equipment").prefetch_related(
-        "labor_lines", "part_lines"
-    )
+    work_orders = WorkOrder.objects.filter(equipment__in=scoped_equipment_qs(request.user)).select_related(
+        "equipment"
+    ).prefetch_related("labor_lines", "part_lines")
     if not show_all:
         work_orders = work_orders.exclude(status__in=["completed", "cancelled"])
     return JsonResponse({"work_orders": [_work_order_summary_json(wo) for wo in work_orders]})
@@ -268,9 +274,9 @@ def api_work_orders_list_view(request):
 @require_GET
 def api_work_order_detail_view(request, pk):
     wo = get_object_or_404(
-        WorkOrder.objects.select_related("equipment", "equipment__customer").prefetch_related(
-            "labor_lines", "part_lines"
-        ),
+        WorkOrder.objects.filter(equipment__in=scoped_equipment_qs(request.user)).select_related(
+            "equipment", "equipment__customer"
+        ).prefetch_related("labor_lines", "part_lines"),
         pk=pk,
     )
     data = _work_order_summary_json(wo)
@@ -315,7 +321,7 @@ def api_work_order_detail_view(request, pk):
 @role_required("admin", "technician")
 @require_POST
 def api_add_work_order_comment_view(request, pk):
-    wo = get_object_or_404(WorkOrder, pk=pk)
+    wo = get_object_or_404(WorkOrder.objects.filter(equipment__in=scoped_equipment_qs(request.user)), pk=pk)
     try:
         payload = _parse_json_body(request)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -337,7 +343,7 @@ def api_add_work_order_comment_view(request, pk):
 @role_required("admin", "technician")
 @require_POST
 def api_work_order_status_view(request, pk):
-    wo = get_object_or_404(WorkOrder, pk=pk)
+    wo = get_object_or_404(WorkOrder.objects.filter(equipment__in=scoped_equipment_qs(request.user)), pk=pk)
     try:
         payload = _parse_json_body(request)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -360,7 +366,7 @@ def api_work_order_status_view(request, pk):
 @role_required("admin", "technician")
 @require_POST
 def api_add_labor_line_view(request, pk):
-    wo = get_object_or_404(WorkOrder, pk=pk)
+    wo = get_object_or_404(WorkOrder.objects.filter(equipment__in=scoped_equipment_qs(request.user)), pk=pk)
     try:
         payload = _parse_json_body(request)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -385,7 +391,7 @@ def api_add_labor_line_view(request, pk):
 @role_required("admin", "technician")
 @require_POST
 def api_add_part_line_view(request, pk):
-    wo = get_object_or_404(WorkOrder, pk=pk)
+    wo = get_object_or_404(WorkOrder.objects.filter(equipment__in=scoped_equipment_qs(request.user)), pk=pk)
     try:
         payload = _parse_json_body(request)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -411,6 +417,8 @@ def api_add_part_line_view(request, pk):
 @role_required("admin", "technician")
 @require_GET
 def api_parts_list_view(request):
+    if user_customer_scope(request.user) is not None:
+        return JsonResponse({"error": "inventory is internal-only"}, status=403)
     parts = Part.objects.all()
     return JsonResponse({
         "parts": [

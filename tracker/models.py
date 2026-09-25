@@ -26,13 +26,20 @@ class UserProfile(models.Model):
     ]
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="technician")
+    customer = models.ForeignKey(
+        "Customer", on_delete=models.SET_NULL, null=True, blank=True, related_name="portal_users",
+        help_text="If set, this account only sees this customer's fleet (a client portal "
+                   "login). Leave blank for the consulting business's own staff, who see "
+                   "every customer's fleet.",
+    )
     api_token = models.CharField(
         max_length=64, unique=True, default=generate_api_token,
         help_text="Bearer token this user's mobile app sends to authenticate to the API",
     )
 
     def __str__(self):
-        return f"{self.user.username} ({self.get_role_display()})"
+        scope = self.customer.name if self.customer else "all customers"
+        return f"{self.user.username} ({self.get_role_display()}, {scope})"
 
 
 @receiver(post_save, sender=User)

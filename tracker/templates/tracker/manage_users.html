@@ -3,11 +3,11 @@
 {% block content %}
 <p><a class="back-link" href="{% url 'manage_view' %}">&larr; Manage Fleet</a></p>
 <h1>Users</h1>
-<p class="muted" style="margin-top:0;">Operators can only submit inspections. Technicians can also handle work orders and parts inventory. Admins see everything, including this page. Only admins can create accounts or change roles.</p>
+<p class="muted" style="margin-top:0;">Operators can only submit inspections. Technicians can also handle work orders and parts inventory. Admins see everything, including this page. A customer set on an account restricts it to that company's fleet only, regardless of role -- leave blank for the consulting business's own staff. Only the master admin can create accounts or change roles/scope.</p>
 
 <div class="card">
   <table>
-    <tr><th>Username</th><th>Role</th><th>Status</th><th></th></tr>
+    <tr><th>Username</th><th>Role</th><th>Customer scope</th><th>Status</th><th></th></tr>
     {% for u in users %}
     <tr>
       <td>{{ u.username }}{% if u.is_superuser %} <span class="muted">(superuser)</span>{% endif %}</td>
@@ -22,6 +22,23 @@
           <select name="role" onchange="this.form.submit()" style="padding:0.35rem; border:1px solid var(--border); border-radius:6px;">
             {% for value, label in roles %}
             <option value="{{ value }}" {% if u.profile.role == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        {% endif %}
+      </td>
+      <td>
+        {% if u.is_superuser %}
+          <span class="muted">All customers</span>
+        {% else %}
+        <form method="post" style="display:flex; gap:0.4rem; align-items:center;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="update_customer">
+          <input type="hidden" name="user_id" value="{{ u.pk }}">
+          <select name="customer_id" onchange="this.form.submit()" style="padding:0.35rem; border:1px solid var(--border); border-radius:6px;">
+            <option value="">All customers (internal)</option>
+            {% for c in customers %}
+            <option value="{{ c.pk }}" {% if u.profile.customer_id == c.pk %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
           </select>
         </form>
@@ -60,6 +77,13 @@
         <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Role</label>
         <select name="role" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
           {% for value, label in roles %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="min-width:160px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Customer scope</label>
+        <select name="customer_id" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+          <option value="">All customers (internal)</option>
+          {% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
         </select>
       </div>
       <button type="submit" style="padding:0.55rem 1.1rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">Add user</button>
