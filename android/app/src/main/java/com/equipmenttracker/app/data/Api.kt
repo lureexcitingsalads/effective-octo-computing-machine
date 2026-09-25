@@ -90,10 +90,7 @@ data class EquipmentDetailDto(
 data class ChecklistItemDto(val key: String, val label: String, val critical: Boolean)
 
 @Serializable
-data class ChecklistResponse(val items: List<ChecklistItemDto>)
-
-@Serializable
-data class InspectionRequest(val responses: Map<String, String>, val notes: String)
+data class ChecklistResponse(val items: List<ChecklistItemDto>, val sides: List<String> = emptyList())
 
 @Serializable
 data class InspectionResponse(val id: Int, @SerialName("has_issues") val hasIssues: Boolean)
@@ -130,10 +127,19 @@ data class LaborLineDto(
 @Serializable
 data class PartLineDto(
     val id: Int,
+    @SerialName("part_id") val partId: Int? = null,
     @SerialName("part_name") val partName: String,
     val quantity: Double,
     @SerialName("unit_cost") val unitCost: Double,
     @SerialName("line_total") val lineTotal: Double,
+)
+
+@Serializable
+data class WorkOrderCommentDto(
+    val id: Int,
+    val author: String,
+    val text: String,
+    @SerialName("created_at") val createdAt: String,
 )
 
 @Serializable
@@ -154,6 +160,7 @@ data class WorkOrderDetailDto(
     @SerialName("parts_total") val partsTotal: Double,
     @SerialName("labor_lines") val laborLines: List<LaborLineDto> = emptyList(),
     @SerialName("part_lines") val partLines: List<PartLineDto> = emptyList(),
+    val comments: List<WorkOrderCommentDto> = emptyList(),
 )
 
 @Serializable
@@ -167,13 +174,30 @@ data class AddLaborLineRequest(val technician: String, val hours: Double, val ra
 
 @Serializable
 data class AddPartLineRequest(
-    @SerialName("part_name") val partName: String,
+    @SerialName("part_id") val partId: Int? = null,
+    @SerialName("part_name") val partName: String = "",
     val quantity: Double,
-    @SerialName("unit_cost") val unitCost: Double,
+    @SerialName("unit_cost") val unitCost: Double? = null,
 )
 
 @Serializable
 data class LineAddedResponse(val id: Int, @SerialName("line_total") val lineTotal: Double)
+
+@Serializable
+data class AddCommentRequest(val text: String)
+
+@Serializable
+data class PartDto(
+    val id: Int,
+    val name: String,
+    @SerialName("part_number") val partNumber: String,
+    @SerialName("quantity_on_hand") val quantityOnHand: Double,
+    @SerialName("unit_cost") val unitCost: Double,
+    @SerialName("is_low_stock") val isLowStock: Boolean,
+)
+
+@Serializable
+data class PartListResponse(val parts: List<PartDto>)
 
 interface ApiService {
     @POST("api/login/")
@@ -188,11 +212,16 @@ interface ApiService {
     @GET("api/checklist/")
     suspend fun getChecklist(@Header("Authorization") auth: String): ChecklistResponse
 
+    @Multipart
     @POST("api/equipment/{id}/inspections/")
-    suspend fun submitInspection(
+    suspend fun submitInspectionMultipart(
         @Header("Authorization") auth: String,
         @Path("id") id: Int,
-        @Body request: InspectionRequest,
+        @Part("responses") responses: RequestBody,
+        @Part("comments") comments: RequestBody,
+        @Part("notes") notes: RequestBody,
+        @Part("hours_at_inspection") hoursAtInspection: RequestBody,
+        @Part photos: List<MultipartBody.Part>,
     ): InspectionResponse
 
     @Multipart
@@ -231,6 +260,16 @@ interface ApiService {
         @Path("id") id: Int,
         @Body request: AddPartLineRequest,
     ): LineAddedResponse
+
+    @POST("api/work-orders/{id}/comments/")
+    suspend fun addWorkOrderComment(
+        @Header("Authorization") auth: String,
+        @Path("id") id: Int,
+        @Body request: AddCommentRequest,
+    ): WorkOrderCommentDto
+
+    @GET("api/parts/")
+    suspend fun listParts(@Header("Authorization") auth: String): PartListResponse
 }
 
 object ApiClientFactory {

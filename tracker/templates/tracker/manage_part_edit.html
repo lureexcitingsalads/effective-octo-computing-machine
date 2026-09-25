@@ -1,0 +1,50 @@
+{% extends "tracker/base.html" %}
+{% block title %}Edit {{ part.name }}{% endblock %}
+{% block content %}
+<p><a class="back-link" href="{% url 'manage_view' %}">&larr; Manage Fleet</a></p>
+<h1>Edit {{ part.name }}</h1>
+
+<div class="card">
+  <form method="post">
+    {% csrf_token %}
+    <div style="display:flex; flex-direction:column; gap:1rem; max-width:420px;">
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Part name</label>
+        <input type="text" name="name" value="{{ part.name }}" required style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Part number</label>
+        <input type="text" name="part_number" value="{{ part.part_number }}" style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Quantity on hand</label>
+        <input type="number" name="quantity_on_hand" step="1" min="0" value="{{ part.quantity_on_hand }}" style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Unit cost ($)</label>
+        <input type="number" name="unit_cost" step="0.01" min="0" value="{{ part.unit_cost }}" style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <div>
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Reorder point (optional -- flags low stock at or below this)</label>
+        <input type="number" name="reorder_point" step="1" min="0" value="{{ part.reorder_point|default_if_none:'' }}" style="width:100%; padding:0.55rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
+      <button type="submit" style="padding:0.6rem 1.2rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; width:fit-content;">Save changes</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Usage history</h2>
+  <table>
+    <tr><th>Work order</th><th>Equipment</th><th>Qty used</th><th>Date</th></tr>
+    {% for line in part.usage_lines.all %}
+    <tr>
+      <td><a class="equip-link" href="{% url 'work_order_detail' line.work_order.pk %}">{{ line.work_order.title }}</a></td>
+      <td>{{ line.work_order.equipment.label }}</td>
+      <td>{{ line.quantity }}</td>
+      <td class="muted">{{ line.created_at|date:"Y-m-d" }}</td>
+    </tr>
+    {% empty %}<tr><td colspan="4" class="muted">Not used on any work order yet.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

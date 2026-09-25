@@ -16,8 +16,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from .inspection_checklist import CHECKLIST as INSPECTION_CHECKLIST, CRITICAL_ITEMS as INSPECTION_CRITICAL_ITEMS
-from .models import Equipment, UserProfile, WorkOrder, WorkOrderLaborLine, WorkOrderPartLine
+from .models import Equipment, Part, UserProfile, WorkOrder, WorkOrderComment, WorkOrderLaborLine, WorkOrderPartLine
 from .views import (
+    INSPECTION_SIDES,
+    _add_part_line,
+    _attach_inspection_photos,
     _complete_work_order,
     _compute_lifecycle_signals,
     _compute_maintenance_forecast,
@@ -113,7 +116,7 @@ def api_checklist_view(request):
         {"key": key, "label": label, "critical": key in INSPECTION_CRITICAL_ITEMS}
         for key, label in INSPECTION_CHECKLIST
     ]
-    return JsonResponse({"items": items})
+    return JsonResponse({"items": items, "sides": INSPECTION_SIDES})
 
 
 @token_required
@@ -168,17 +171,33 @@ def api_equipment_detail_view(request, pk):
 @token_required
 @require_POST
 def api_create_inspection_view(request, pk):
+    """Multipart, not JSON, since this can carry photos: per-item issue photos and the
+    4-side walkaround. `responses`/`comments` travel as JSON-encoded text fields within the
+    multipart body -- there's no clean way to nest structured data any other way alongside
+    files in a single request."""
     equipment = get_object_or_404(Equipment, pk=pk)
     try:
-        payload = _parse_json_body(request)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return JsonResponse({"error": "body must be valid JSON"}, status=400)
+        responses = json.loads(request.POST.get("responses") or "{}")
+        comments = json.loads(request.POST.get("comments") or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "responses/comments must be valid JSON"}, status=400)
+
+    hours_raw = (request.POST.get("hours_at_inspection") or "").strip()
+    performed_by = request.user.get_username()
 
     inspection = _create_inspection(
         equipment,
-        request.user.get_username(),
-        payload.get("responses") or {},
-        (payload.get("notes") or "").strip(),
+        performed_by,
+        responses,
+        (request.POST.get("notes") or "").strip(),
+        comments=comments,
+        hours_override=hours_raw or None,
+    )
+    _attach_inspection_photos(
+        inspection,
+        performed_by,
+        item_photos={key: request.FILES.get(f"photo_{key}") for key, _ in INSPECTION_CHECKLIST},
+        side_photos={side: request.FILES.get(f"side_{side}") for side in INSPECTION_SIDES},
     )
     return JsonResponse({"id": inspection.pk, "has_issues": inspection.has_issues}, status=201)
 
@@ -258,6 +277,7 @@ def api_work_order_detail_view(request, pk):
         "part_lines": [
             {
                 "id": line.pk,
+                "part_id": line.part_id,
                 "part_name": line.part_name,
                 "quantity": float(line.quantity),
                 "unit_cost": float(line.unit_cost),
@@ -265,8 +285,33 @@ def api_work_order_detail_view(request, pk):
             }
             for line in wo.part_lines.all()
         ],
+        "comments": [
+            {"id": c.pk, "author": c.author, "text": c.text, "created_at": c.created_at.isoformat()}
+            for c in wo.comments.all()
+        ],
     })
     return JsonResponse(data)
+
+
+@csrf_exempt
+@token_required
+@require_POST
+def api_add_work_order_comment_view(request, pk):
+    wo = get_object_or_404(WorkOrder, pk=pk)
+    try:
+        payload = _parse_json_body(request)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "body must be valid JSON"}, status=400)
+
+    text = (payload.get("text") or "").strip()
+    if not text:
+        return JsonResponse({"error": "text is required"}, status=400)
+
+    comment = WorkOrderComment.objects.create(work_order=wo, author=request.user.get_username(), text=text)
+    return JsonResponse(
+        {"id": comment.pk, "author": comment.author, "text": comment.text, "created_at": comment.created_at.isoformat()},
+        status=201,
+    )
 
 
 @csrf_exempt
@@ -325,14 +370,36 @@ def api_add_part_line_view(request, pk):
     except (json.JSONDecodeError, UnicodeDecodeError):
         return JsonResponse({"error": "body must be valid JSON"}, status=400)
 
+    part_id = payload.get("part_id")
     part_name = (payload.get("part_name") or "").strip()
-    if not part_name:
-        return JsonResponse({"error": "part_name is required"}, status=400)
+    if not part_id and not part_name:
+        return JsonResponse({"error": "part_id or part_name is required"}, status=400)
 
-    line = WorkOrderPartLine.objects.create(
-        work_order=wo,
+    unit_cost = payload.get("unit_cost")
+    line = _add_part_line(
+        wo,
+        part_id=part_id,
         part_name=part_name,
         quantity=payload.get("quantity") or 1,
-        unit_cost=payload.get("unit_cost") or 0,
+        unit_cost=unit_cost if unit_cost is not None else None,
     )
     return JsonResponse({"id": line.pk, "line_total": float(line.line_total)}, status=201)
+
+
+@token_required
+@require_GET
+def api_parts_list_view(request):
+    parts = Part.objects.all()
+    return JsonResponse({
+        "parts": [
+            {
+                "id": p.pk,
+                "name": p.name,
+                "part_number": p.part_number,
+                "quantity_on_hand": float(p.quantity_on_hand),
+                "unit_cost": float(p.unit_cost),
+                "is_low_stock": p.is_low_stock,
+            }
+            for p in parts
+        ],
+    })

@@ -147,13 +147,21 @@ class Issue(models.Model):
 
 
 class Photo(models.Model):
-    """A photo attached to an Issue or a WorkOrder -- exactly one of the two should be set.
-    Two nullable FKs rather than a GenericForeignKey since there are only ever these two
+    """A photo attached to an Issue, a WorkOrder, or an Inspection -- exactly one of the three
+    should be set. Nullable FKs rather than a GenericForeignKey since there are only ever these
     targets; simpler to query and reason about than the generic-relation machinery."""
 
     issue = models.ForeignKey(Issue, on_delete=models.CASCADE, null=True, blank=True, related_name="photos")
     work_order = models.ForeignKey(
         "WorkOrder", on_delete=models.CASCADE, null=True, blank=True, related_name="photos"
+    )
+    inspection = models.ForeignKey(
+        "Inspection", on_delete=models.CASCADE, null=True, blank=True, related_name="photos"
+    )
+    item_key = models.CharField(
+        max_length=50, blank=True,
+        help_text='For an inspection photo: which checklist item ("engine_oil") or walkaround '
+                   'side ("side_front"/"side_back"/"side_left"/"side_right") this documents.',
     )
     image = models.ImageField(upload_to="photos/%Y/%m/")
     caption = models.CharField(max_length=200, blank=True)
@@ -164,7 +172,7 @@ class Photo(models.Model):
         ordering = ["uploaded_at"]
 
     def __str__(self):
-        return f"Photo on {self.issue or self.work_order}"
+        return f"Photo on {self.issue or self.work_order or self.inspection}"
 
 
 class Inspection(models.Model):
@@ -177,6 +185,9 @@ class Inspection(models.Model):
     performed_at = models.DateTimeField(auto_now_add=True)
     hours_at_inspection = models.DecimalField(max_digits=10, decimal_places=1, null=True, blank=True)
     responses = models.JSONField(default=dict, help_text='{"item_key": "ok"|"issue"|"na"}')
+    comments = models.JSONField(
+        default=dict, blank=True, help_text='{"item_key": "comment text"} -- only items worth a note need an entry'
+    )
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -257,6 +268,53 @@ class WorkOrder(models.Model):
         return self.labor_total + self.parts_total
 
 
+class WorkOrderComment(models.Model):
+    """A running log entry from a technician working the job -- distinct from `description`
+    (a single editable summary) in that comments are an append-only timeline, so a supervisor
+    reviewing a completed job can see how it actually went, not just the final state."""
+
+    work_order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="comments")
+    author = models.CharField(max_length=200)
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.author} on {self.work_order}: {self.text[:40]}"
+
+
+class Part(models.Model):
+    """A stocked inventory item. Deliberately minimal -- one shared stock level, no per-site/
+    per-truck location tracking and no supplier/PO management -- just enough to know what's on
+    hand and flag what's running low. A WorkOrderPartLine can optionally link to one of these;
+    linking decrements quantity_on_hand, but a line can still be logged free-text for a
+    one-off part that was never worth stocking."""
+
+    name = models.CharField(max_length=200)
+    part_number = models.CharField(max_length=100, blank=True)
+    quantity_on_hand = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    unit_cost = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="Default cost used to prefill a work order part line",
+    )
+    reorder_point = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Flag as low stock at or below this quantity; leave blank to never flag",
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_low_stock(self):
+        return self.reorder_point is not None and self.quantity_on_hand <= self.reorder_point
+
+
 class WorkOrderLaborLine(models.Model):
     """One technician's time on a work order -- itemized so cost analysis can break
     labor out from parts instead of relying on a single guessed total."""
@@ -283,6 +341,10 @@ class WorkOrderPartLine(models.Model):
     """One line item of parts/materials used on a work order."""
 
     work_order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="part_lines")
+    part = models.ForeignKey(
+        Part, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_lines",
+        help_text="Linked inventory item, if this part is stocked -- leave blank for a one-off part",
+    )
     part_name = models.CharField(max_length=200)
     quantity = models.DecimalField(max_digits=8, decimal_places=2, default=1)
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)

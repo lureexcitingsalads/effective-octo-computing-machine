@@ -19,8 +19,8 @@ from django.views.decorators.http import require_POST
 
 from .inspection_checklist import CHECKLIST as INSPECTION_CHECKLIST, CRITICAL_ITEMS as INSPECTION_CRITICAL_ITEMS
 from .models import (
-    UserProfile, Customer, Site, Equipment, Issue, Photo, Inspection, WorkOrder, WorkOrderLaborLine, WorkOrderPartLine,
-    MaintenanceRecord, Device, TelemetryPing, HourReading, FaultEvent,
+    UserProfile, Customer, Site, Equipment, Issue, Photo, Inspection, Part, WorkOrder, WorkOrderComment,
+    WorkOrderLaborLine, WorkOrderPartLine, MaintenanceRecord, Device, TelemetryPing, HourReading, FaultEvent,
 )
 
 
@@ -262,22 +262,40 @@ def equipment_detail(request, pk):
     return render(request, "tracker/equipment_detail.html", context)
 
 
-def _create_inspection(equipment, performed_by, responses, notes):
+def _create_inspection(equipment, performed_by, responses, notes, comments=None, hours_override=None):
     """Shared by the web checklist form and the mobile API -- same fixed checklist, same
-    auto-derived hours, same auto-escalation into an Issue when something's flagged."""
+    auto-escalation into an Issue when something's flagged. Hours normally auto-derive from
+    the latest device reading, but a technician can override with a manual meter reading --
+    that creates a real HourReading, so it feeds the maintenance forecast and equipment status
+    exactly like a device-reported one would (this is the only way hours advance at all until
+    real J1939 hardware exists)."""
     responses = {key: responses.get(key, "na") for key, _ in INSPECTION_CHECKLIST}
-    latest = equipment.hour_readings.order_by("-recorded_at").first()
+    checklist_keys = dict(INSPECTION_CHECKLIST)
+    comments = {k: v.strip() for k, v in (comments or {}).items() if v and v.strip() and k in checklist_keys}
+
+    if hours_override is not None:
+        HourReading.objects.create(equipment=equipment, engine_hours=hours_override, recorded_at=timezone.now())
+        hours_at_inspection = hours_override
+    else:
+        latest = equipment.hour_readings.order_by("-recorded_at").first()
+        hours_at_inspection = latest.engine_hours if latest else None
 
     inspection = Inspection.objects.create(
         equipment=equipment,
         performed_by=performed_by,
-        hours_at_inspection=latest.engine_hours if latest else None,
+        hours_at_inspection=hours_at_inspection,
         responses=responses,
+        comments=comments,
         notes=notes,
     )
 
     if inspection.has_issues:
-        flagged = [label for key, label in INSPECTION_CHECKLIST if responses.get(key) == "issue"]
+        flagged = []
+        for key, label in INSPECTION_CHECKLIST:
+            if responses.get(key) != "issue":
+                continue
+            note = comments.get(key)
+            flagged.append(f"{label} ({note})" if note else label)
         critical_hit = any(responses.get(key) == "issue" for key in INSPECTION_CRITICAL_ITEMS)
         severity = "high" if critical_hit or len(flagged) > 1 else "medium"
         Issue.objects.create(
@@ -287,6 +305,19 @@ def _create_inspection(equipment, performed_by, responses, notes):
             description=f"Pre-shift inspection flagged: {', '.join(flagged)}",
         )
     return inspection
+
+
+INSPECTION_SIDES = ["front", "back", "left", "right"]
+
+
+def _attach_inspection_photos(inspection, uploaded_by, item_photos, side_photos):
+    """item_photos: {checklist_key: UploadedFile}, side_photos: {"front"|"back"|"left"|"right": UploadedFile}."""
+    for key, f in item_photos.items():
+        if f:
+            Photo.objects.create(inspection=inspection, item_key=key, image=f, uploaded_by=uploaded_by)
+    for side, f in side_photos.items():
+        if f:
+            Photo.objects.create(inspection=inspection, item_key=f"side_{side}", image=f, uploaded_by=uploaded_by)
 
 
 def _create_issue(equipment, reported_by, severity, description, photo_files=()):
@@ -305,11 +336,30 @@ def new_inspection_view(request, pk):
 
     if request.method == "POST":
         responses = {key: request.POST.get(f"item_{key}", "na") for key, _ in INSPECTION_CHECKLIST}
+        comments = {key: request.POST.get(f"comment_{key}", "") for key, _ in INSPECTION_CHECKLIST}
         performed_by = request.POST.get("performed_by", "").strip() or request.user.get_username()
-        _create_inspection(equipment, performed_by, responses, request.POST.get("notes", "").strip())
+        hours_raw = request.POST.get("hours_at_inspection", "").strip()
+
+        inspection = _create_inspection(
+            equipment, performed_by, responses, request.POST.get("notes", "").strip(),
+            comments=comments, hours_override=hours_raw or None,
+        )
+        _attach_inspection_photos(
+            inspection,
+            performed_by,
+            item_photos={key: request.FILES.get(f"photo_{key}") for key, _ in INSPECTION_CHECKLIST},
+            side_photos={side: request.FILES.get(f"side_{side}") for side in INSPECTION_SIDES},
+        )
         return redirect("equipment_detail", pk=pk)
 
-    context = {"equipment": equipment, "checklist": INSPECTION_CHECKLIST}
+    latest = equipment.hour_readings.order_by("-recorded_at").first()
+    context = {
+        "equipment": equipment,
+        "checklist": INSPECTION_CHECKLIST,
+        "critical_items": INSPECTION_CRITICAL_ITEMS,
+        "latest_hours": latest.engine_hours if latest else None,
+        "sides": INSPECTION_SIDES,
+    }
     return render(request, "tracker/new_inspection.html", context)
 
 
@@ -342,11 +392,24 @@ def manage_view(request):
                 site, _ = Site.objects.get_or_create(name=name, customer_id=customer_id)
                 return redirect("manage_site_edit", pk=site.pk)
 
+        elif action == "create_part":
+            name = request.POST.get("name", "").strip()
+            if name:
+                part = Part.objects.create(
+                    name=name,
+                    part_number=request.POST.get("part_number", "").strip(),
+                    quantity_on_hand=request.POST.get("quantity_on_hand") or 0,
+                    unit_cost=request.POST.get("unit_cost") or 0,
+                    reorder_point=request.POST.get("reorder_point") or None,
+                )
+                return redirect("manage_part_edit", pk=part.pk)
+
         return redirect("manage_view")
 
     context = {
         "equipment_list": Equipment.objects.select_related("customer", "site"),
         "sites": Site.objects.select_related("customer").annotate(equipment_count=Count("equipment")),
+        "parts": Part.objects.all(),
         "customers": Customer.objects.all(),
     }
     return render(request, "tracker/manage.html", context)
@@ -390,6 +453,22 @@ def manage_site_edit_view(request, pk):
         "equipment_at_site": site.equipment.all(),
     }
     return render(request, "tracker/manage_site_edit.html", context)
+
+
+@role_required("admin", "supervisor")
+def manage_part_edit_view(request, pk):
+    part = get_object_or_404(Part, pk=pk)
+
+    if request.method == "POST":
+        part.name = request.POST.get("name", "").strip()
+        part.part_number = request.POST.get("part_number", "").strip()
+        part.quantity_on_hand = request.POST.get("quantity_on_hand") or 0
+        part.unit_cost = request.POST.get("unit_cost") or 0
+        part.reorder_point = request.POST.get("reorder_point") or None
+        part.save()
+        return redirect("manage_view")
+
+    return render(request, "tracker/manage_part_edit.html", {"part": part})
 
 
 @role_required("admin")
@@ -797,6 +876,25 @@ def _complete_work_order(wo, performed_by):
     wo.save()
 
 
+def _add_part_line(work_order, part_id=None, part_name="", quantity=1, unit_cost=None):
+    """Shared by the web work-order form and the mobile API. Linking to a stocked Part
+    prefills name/cost when not given and decrements quantity_on_hand; leaving part_id blank
+    just logs a free-text line for something that was never worth stocking."""
+    part = Part.objects.filter(pk=part_id).first() if part_id else None
+    quantity = Decimal(str(quantity or 1))
+    if part:
+        part_name = part_name.strip() or part.name
+        if unit_cost is None:
+            unit_cost = part.unit_cost
+        part.quantity_on_hand = part.quantity_on_hand - quantity
+        part.save(update_fields=["quantity_on_hand"])
+    else:
+        part_name = part_name.strip()
+    return WorkOrderPartLine.objects.create(
+        work_order=work_order, part=part, part_name=part_name, quantity=quantity, unit_cost=unit_cost or 0,
+    )
+
+
 @login_required
 def work_order_detail_view(request, pk):
     """The technician view -- one job, its itemized labor/parts, and status control."""
@@ -821,13 +919,23 @@ def work_order_detail_view(request, pk):
             WorkOrderLaborLine.objects.filter(pk=request.POST.get("line_id"), work_order=wo).delete()
 
         elif action == "add_part_line":
+            part_id = request.POST.get("part_id") or None
             part_name = request.POST.get("part_name", "").strip()
-            if part_name:
-                WorkOrderPartLine.objects.create(
-                    work_order=wo,
+            unit_cost_raw = request.POST.get("unit_cost", "").strip()
+            if part_id or part_name:
+                _add_part_line(
+                    wo,
+                    part_id=part_id,
                     part_name=part_name,
                     quantity=request.POST.get("quantity") or 1,
-                    unit_cost=request.POST.get("unit_cost") or 0,
+                    unit_cost=Decimal(unit_cost_raw) if unit_cost_raw else None,
+                )
+
+        elif action == "add_comment":
+            text = request.POST.get("text", "").strip()
+            if text:
+                WorkOrderComment.objects.create(
+                    work_order=wo, author=request.user.get_username(), text=text,
                 )
 
         elif action == "remove_part_line":
@@ -859,7 +967,7 @@ def work_order_detail_view(request, pk):
 
         return redirect("work_order_detail", pk=pk)
 
-    return render(request, "tracker/work_order_detail.html", {"wo": wo})
+    return render(request, "tracker/work_order_detail.html", {"wo": wo, "parts": Part.objects.all()})
 
 
 @role_required("admin", "supervisor")

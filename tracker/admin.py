@@ -12,7 +12,9 @@ from .models import (
     Photo,
     MaintenanceSchedule,
     Inspection,
+    Part,
     WorkOrder,
+    WorkOrderComment,
     WorkOrderLaborLine,
     WorkOrderPartLine,
     MaintenanceRecord,
@@ -84,6 +86,12 @@ class MaintenanceScheduleAdmin(admin.ModelAdmin):
     list_filter = ["equipment"]
 
 
+@admin.register(Part)
+class PartAdmin(admin.ModelAdmin):
+    list_display = ["name", "part_number", "quantity_on_hand", "unit_cost", "reorder_point", "is_low_stock"]
+    search_fields = ["name", "part_number"]
+
+
 class WorkOrderLaborLineInline(admin.TabularInline):
     model = WorkOrderLaborLine
     extra = 0
@@ -94,11 +102,16 @@ class WorkOrderPartLineInline(admin.TabularInline):
     extra = 0
 
 
+class WorkOrderCommentInline(admin.TabularInline):
+    model = WorkOrderComment
+    extra = 0
+
+
 @admin.register(WorkOrder)
 class WorkOrderAdmin(admin.ModelAdmin):
     list_display = ["equipment", "title", "status", "assigned_to", "total_cost", "equipment_down", "created_at", "completed_at"]
     list_filter = ["equipment", "status"]
-    inlines = [WorkOrderLaborLineInline, WorkOrderPartLineInline]
+    inlines = [WorkOrderLaborLineInline, WorkOrderPartLineInline, WorkOrderCommentInline]
 
 
 @admin.register(MaintenanceRecord)

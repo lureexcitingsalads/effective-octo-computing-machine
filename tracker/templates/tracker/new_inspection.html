@@ -2,8 +2,9 @@
 {% block title %}Inspect {{ equipment.label }}{% endblock %}
 {% block extra_head %}
 <style>
-  .insp-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .insp-row { padding: 0.8rem 0; border-bottom: 1px solid var(--border); }
   .insp-row:last-child { border-bottom: none; }
+  .insp-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
   .insp-label { font-weight: 500; flex: 1; min-width: 200px; }
   .insp-options { display: flex; gap: 0.4rem; }
   .insp-options input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -16,6 +17,14 @@
   .insp-options input[value="ok"]:checked + label { background: #dcfce7; border-color: var(--success); color: var(--success); }
   .insp-options input[value="issue"]:checked + label { background: #fee2e2; border-color: var(--danger); color: var(--danger); }
   .insp-options input[value="na"]:checked + label { background: #f3f4f6; border-color: var(--border); color: var(--text); }
+  .insp-detail { display: none; margin-top: 0.6rem; gap: 0.5rem; flex-wrap: wrap; }
+  .insp-detail.open { display: flex; }
+  .insp-detail input[type="text"] { flex: 1; min-width: 200px; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; }
+  .insp-detail input[type="file"] { max-width: 220px; }
+  .insp-critical { color: var(--danger); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; margin-left: 0.4rem; }
+  .insp-sides { display: flex; gap: 0.9rem; flex-wrap: wrap; }
+  .insp-side { flex: 1; min-width: 140px; }
+  .insp-side label { display: block; color: var(--muted); font-size: 0.8rem; margin-bottom: 0.25rem; }
 </style>
 {% endblock %}
 {% block content %}
@@ -23,7 +32,7 @@
 <h1>Pre-Shift Inspection</h1>
 <p class="muted" style="margin-top:0;">{{ equipment.label }} &middot; {{ equipment.customer.name }}</p>
 
-<form method="post">
+<form method="post" enctype="multipart/form-data">
   {% csrf_token %}
   <div class="card">
     <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.5rem;">
@@ -31,18 +40,29 @@
         <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Performed by</label>
         <input type="text" name="performed_by" value="{{ request.user.get_username }}" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
       </div>
+      <div style="min-width:160px;">
+        <label class="muted" style="display:block; font-size:0.8rem; margin-bottom:0.25rem;">Hour meter reading</label>
+        <input type="number" name="hours_at_inspection" step="0.1" min="0" placeholder="{{ latest_hours|default:'e.g. 1420.5' }}" style="width:100%; padding:0.5rem; border:1px solid var(--border); border-radius:6px;">
+      </div>
     </div>
+    <p class="muted" style="margin-top:0; font-size:0.78rem;">Enter the current hour meter if you're looking at it -- this logs a fresh reading and updates the machine's maintenance status. Leave blank to keep the last known hours.</p>
 
     {% for key, label in checklist %}
     <div class="insp-row">
-      <span class="insp-label">{{ label }}</span>
-      <div class="insp-options">
-        <input type="radio" name="item_{{ key }}" value="ok" id="{{ key }}_ok" checked>
-        <label for="{{ key }}_ok">OK</label>
-        <input type="radio" name="item_{{ key }}" value="issue" id="{{ key }}_issue">
-        <label for="{{ key }}_issue">Issue</label>
-        <input type="radio" name="item_{{ key }}" value="na" id="{{ key }}_na">
-        <label for="{{ key }}_na">N/A</label>
+      <div class="insp-top">
+        <span class="insp-label">{{ label }}{% if key in critical_items %}<span class="insp-critical">Critical</span>{% endif %}</span>
+        <div class="insp-options">
+          <input type="radio" name="item_{{ key }}" value="ok" id="{{ key }}_ok" data-key="{{ key }}" checked>
+          <label for="{{ key }}_ok">OK</label>
+          <input type="radio" name="item_{{ key }}" value="issue" id="{{ key }}_issue" data-key="{{ key }}">
+          <label for="{{ key }}_issue">Issue</label>
+          <input type="radio" name="item_{{ key }}" value="na" id="{{ key }}_na" data-key="{{ key }}">
+          <label for="{{ key }}_na">N/A</label>
+        </div>
+      </div>
+      <div class="insp-detail" id="detail_{{ key }}">
+        <input type="text" name="comment_{{ key }}" placeholder="What's wrong? (comment)">
+        <input type="file" name="photo_{{ key }}" accept="image/*" capture="environment">
       </div>
     </div>
     {% endfor %}
@@ -53,8 +73,34 @@
     </div>
 
     <p class="muted" style="margin-top:0.75rem; font-size:0.8rem;">Marking anything "Issue" automatically opens an Issue for this machine so it lands in the normal follow-up workflow.</p>
-
-    <button type="submit" style="margin-top:0.5rem; padding:0.65rem 1.3rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:1rem;">Submit inspection</button>
   </div>
+
+  <div class="card">
+    <h2>Walkaround photos</h2>
+    <p class="muted" style="margin-top:0; font-size:0.8rem;">A quick photo of all four sides documents the machine's condition at the start of the shift. Optional, but recommended.</p>
+    <div class="insp-sides">
+      {% for side in sides %}
+      <div class="insp-side">
+        <label>{{ side|capfirst }}</label>
+        <input type="file" name="side_{{ side }}" accept="image/*" capture="environment">
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <button type="submit" style="margin-top:0.5rem; padding:0.65rem 1.3rem; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:1rem;">Submit inspection</button>
 </form>
+
+<script>
+  document.querySelectorAll('.insp-options input[type="radio"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const detail = document.getElementById('detail_' + input.dataset.key);
+      if (input.value === 'issue') {
+        detail.classList.add('open');
+      } else {
+        detail.classList.remove('open');
+      }
+    });
+  });
+</script>
 {% endblock %}

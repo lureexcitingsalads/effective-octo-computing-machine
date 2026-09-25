@@ -15,6 +15,7 @@ urlpatterns = [
     path("manage/", views.manage_view, name="manage_view"),
     path("manage/equipment/<int:pk>/", views.manage_equipment_edit_view, name="manage_equipment_edit"),
     path("manage/sites/<int:pk>/", views.manage_site_edit_view, name="manage_site_edit"),
+    path("manage/parts/<int:pk>/", views.manage_part_edit_view, name="manage_part_edit"),
     path("manage/users/", views.manage_users_view, name="manage_users_view"),
     path(
         "api/equipment/<int:pk>/reassign/",
@@ -44,4 +45,10 @@ urlpatterns = [
     ),
     path("api/work-orders/<int:pk>/labor/", api.api_add_labor_line_view, name="api_add_labor_line"),
     path("api/work-orders/<int:pk>/parts/", api.api_add_part_line_view, name="api_add_part_line"),
+    path(
+        "api/work-orders/<int:pk>/comments/",
+        api.api_add_work_order_comment_view,
+        name="api_add_work_order_comment",
+    ),
+    path("api/parts/", api.api_parts_list_view, name="api_parts_list"),
 ]

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,10 +45,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.equipmenttracker.app.data.AddCommentRequest
 import com.equipmenttracker.app.data.AddLaborLineRequest
 import com.equipmenttracker.app.data.AddPartLineRequest
 import com.equipmenttracker.app.data.ApiClientFactory
+import com.equipmenttracker.app.data.PartDto
 import com.equipmenttracker.app.data.TokenStore
+import com.equipmenttracker.app.data.WorkOrderCommentDto
 import com.equipmenttracker.app.data.WorkOrderDetailDto
 import com.equipmenttracker.app.data.WorkOrderStatusRequest
 import kotlinx.coroutines.launch
@@ -54,6 +60,8 @@ class WorkOrderDetailViewModel(application: Application) : AndroidViewModel(appl
     private val tokenStore = TokenStore(application)
 
     var detail by mutableStateOf<WorkOrderDetailDto?>(null)
+        private set
+    var parts by mutableStateOf<List<PartDto>>(emptyList())
         private set
     var isLoading by mutableStateOf(false)
         private set
@@ -71,6 +79,7 @@ class WorkOrderDetailViewModel(application: Application) : AndroidViewModel(appl
                 val api = ApiClientFactory.create(tokenStore.currentServerUrl())
                 detail = api.getWorkOrder("Bearer $token", workOrderId)
                 isLoading = false
+                parts = runCatching { api.listParts("Bearer $token").parts }.getOrDefault(emptyList())
             } catch (e: Exception) {
                 isLoading = false
                 errorMessage = "Couldn't load this work order: ${e.message ?: "check your connection"}"
@@ -113,18 +122,37 @@ class WorkOrderDetailViewModel(application: Application) : AndroidViewModel(appl
         }
     }
 
-    fun addPart(workOrderId: Int, partName: String, quantity: Double, unitCost: Double) {
+    fun addPart(workOrderId: Int, partId: Int?, partName: String, quantity: Double, unitCost: Double?) {
         isUpdating = true
         viewModelScope.launch {
             try {
                 val token = tokenStore.currentToken() ?: return@launch
                 val api = ApiClientFactory.create(tokenStore.currentServerUrl())
-                api.addPartLine("Bearer $token", workOrderId, AddPartLineRequest(partName, quantity, unitCost))
+                api.addPartLine(
+                    "Bearer $token", workOrderId,
+                    AddPartLineRequest(partId = partId, partName = partName, quantity = quantity, unitCost = unitCost),
+                )
                 isUpdating = false
                 load(workOrderId)
             } catch (e: Exception) {
                 isUpdating = false
                 errorMessage = "Couldn't add part: ${e.message ?: "check your connection"}"
+            }
+        }
+    }
+
+    fun addComment(workOrderId: Int, text: String) {
+        isUpdating = true
+        viewModelScope.launch {
+            try {
+                val token = tokenStore.currentToken() ?: return@launch
+                val api = ApiClientFactory.create(tokenStore.currentServerUrl())
+                api.addWorkOrderComment("Bearer $token", workOrderId, AddCommentRequest(text))
+                isUpdating = false
+                load(workOrderId)
+            } catch (e: Exception) {
+                isUpdating = false
+                errorMessage = "Couldn't add comment: ${e.message ?: "check your connection"}"
             }
         }
     }
@@ -169,6 +197,7 @@ fun WorkOrderDetailScreen(
                     onSetStatus = { viewModel.setStatus(workOrderId, it) },
                     onAddLaborClick = { showLaborDialog = true },
                     onAddPartClick = { showPartDialog = true },
+                    onAddComment = { viewModel.addComment(workOrderId, it) },
                 )
             }
         }
@@ -185,9 +214,10 @@ fun WorkOrderDetailScreen(
     }
     if (showPartDialog) {
         AddPartDialog(
+            availableParts = viewModel.parts,
             onDismiss = { showPartDialog = false },
-            onConfirm = { partName, quantity, unitCost ->
-                viewModel.addPart(workOrderId, partName, quantity, unitCost)
+            onConfirm = { partId, partName, quantity, unitCost ->
+                viewModel.addPart(workOrderId, partId, partName, quantity, unitCost)
                 showPartDialog = false
             },
         )
@@ -202,6 +232,7 @@ private fun WorkOrderDetailContent(
     onSetStatus: (String) -> Unit,
     onAddLaborClick: () -> Unit,
     onAddPartClick: () -> Unit,
+    onAddComment: (String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         Text(detail.equipmentLabel + " · " + detail.customer, style = MaterialTheme.typography.bodyMedium)
@@ -308,6 +339,57 @@ private fun WorkOrderDetailContent(
                 style = MaterialTheme.typography.titleMedium,
             )
         }
+
+        Spacer(Modifier.height(12.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Comments", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                detail.comments.forEach { comment -> CommentRow(comment) }
+                if (detail.comments.isEmpty()) {
+                    Text(
+                        "No comments yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                CommentInput(onAddComment)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentRow(comment: WorkOrderCommentDto) {
+    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        Text(
+            comment.author + " · " + comment.createdAt.take(16).replace("T", " "),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(comment.text, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun CommentInput(onAddComment: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    Row(verticalAlignment = Alignment.Bottom) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            label = { Text("Add a comment") },
+            modifier = Modifier.weight(1f),
+            minLines = 1,
+        )
+        Spacer(Modifier.width(8.dp))
+        Button(onClick = {
+            if (text.isNotBlank()) {
+                onAddComment(text.trim())
+                text = ""
+            }
+        }) { Text("Post") }
     }
 }
 
@@ -368,7 +450,13 @@ private fun AddLaborDialog(onDismiss: () -> Unit, onConfirm: (String, Double, Do
 }
 
 @Composable
-private fun AddPartDialog(onDismiss: () -> Unit, onConfirm: (String, Double, Double) -> Unit) {
+private fun AddPartDialog(
+    availableParts: List<PartDto>,
+    onDismiss: () -> Unit,
+    onConfirm: (Int?, String, Double, Double?) -> Unit,
+) {
+    var selectedPart by remember { mutableStateOf<PartDto?>(null) }
+    var expanded by remember { mutableStateOf(false) }
     var partName by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("1") }
     var unitCost by remember { mutableStateOf("") }
@@ -378,10 +466,37 @@ private fun AddPartDialog(onDismiss: () -> Unit, onConfirm: (String, Double, Dou
         title = { Text("Add part") },
         text = {
             Column {
+                if (availableParts.isNotEmpty()) {
+                    Box {
+                        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                selectedPart?.let { "${it.name} (${it.quantityOnHand.toInt()} on hand)" }
+                                    ?: "Pick from inventory (optional)",
+                            )
+                        }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("— free-text part below —") },
+                                onClick = { selectedPart = null; expanded = false },
+                            )
+                            availableParts.forEach { part ->
+                                DropdownMenuItem(
+                                    text = { Text("${part.name} (${part.quantityOnHand.toInt()} on hand)") },
+                                    onClick = {
+                                        selectedPart = part
+                                        unitCost = part.unitCost.toString()
+                                        expanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 OutlinedTextField(
                     value = partName,
                     onValueChange = { partName = it },
-                    label = { Text("Part name") },
+                    label = { Text(if (selectedPart != null) "Part name (optional override)" else "Part name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -406,8 +521,10 @@ private fun AddPartDialog(onDismiss: () -> Unit, onConfirm: (String, Double, Dou
         confirmButton = {
             TextButton(onClick = {
                 val q = quantity.toDoubleOrNull() ?: 1.0
-                val c = unitCost.toDoubleOrNull() ?: 0.0
-                if (partName.isNotBlank()) onConfirm(partName, q, c)
+                val c = unitCost.toDoubleOrNull()
+                if (selectedPart != null || partName.isNotBlank()) {
+                    onConfirm(selectedPart?.id, partName, q, c)
+                }
             }) { Text("Add") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
